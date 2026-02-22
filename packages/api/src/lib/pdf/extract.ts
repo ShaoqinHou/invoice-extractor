@@ -160,7 +160,7 @@ async function runOcrPipeline(
  * Primary OCR: VLM with full legacy fallback chain.
  * VLM (tier 2) → Tesseract (legacy tier 2) → PaddleOCR (legacy tier 3).
  */
-async function runVlmOcrWithFallback(imageDir: string): Promise<PdfExtraction> {
+export async function runVlmOcrWithFallback(imageDir: string): Promise<PdfExtraction> {
   // Try VLM first (requires ZAI_API_KEY)
   if (process.env.ZAI_API_KEY) {
     try {

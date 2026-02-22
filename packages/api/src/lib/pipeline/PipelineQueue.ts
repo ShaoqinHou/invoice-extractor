@@ -7,6 +7,7 @@ import {
   convertImageToPages,
   cleanupImageDir,
   assessPymupdfQuality,
+  runVlmOcrWithFallback,
   type PdfExtraction,
 } from '../pdf/extract';
 import { agenticExtract } from '../llm/agent';
@@ -296,13 +297,25 @@ export class PipelineQueue {
 
     // Render pages with Ghostscript
     const imageDir = await renderWithGhostscript(absolutePath);
-    return this.runOcrWorker(imageDir, textLayerResult, textLayerBroken);
+    try {
+      const result = await runVlmOcrWithFallback(imageDir);
+      if (textLayerBroken && textLayerResult) {
+        result.textLayerRef = textLayerResult.fullText;
+      }
+      return result;
+    } finally {
+      cleanupImageDir(imageDir);
+    }
   }
 
-  /** Extract text from an image file: convert to pages → OCR worker. */
+  /** Extract text from an image file: convert to pages → VLM OCR (with legacy fallback). */
   private async extractImage(absolutePath: string): Promise<PdfExtraction> {
     const imageDir = await convertImageToPages(absolutePath);
-    return this.runOcrWorker(imageDir, null, false);
+    try {
+      return await runVlmOcrWithFallback(imageDir);
+    } finally {
+      cleanupImageDir(imageDir);
+    }
   }
 
   /** Send rendered images to the persistent OCR worker. */
