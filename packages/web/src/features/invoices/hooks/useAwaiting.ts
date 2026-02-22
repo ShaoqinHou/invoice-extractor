@@ -32,8 +32,10 @@ export function useAwaiting() {
     const currentIds = new Set(query.data.map((inv) => inv.id));
     const prevIds = prevIdsRef.current;
 
+    let hasNew = false;
     for (const id of currentIds) {
       if (!prevIds.has(id)) {
+        hasNew = true;
         // New invoice appeared in awaiting list — prefetch its full detail
         queryClient.prefetchQuery({
           queryKey: invoiceKeys.detail(id),
@@ -45,6 +47,12 @@ export function useAwaiting() {
           staleTime: 10 * 1000,
         });
       }
+    }
+
+    // When new items appear in awaiting (finished extraction), refresh the
+    // invoice list so the table updates without a manual page reload.
+    if (hasNew && prevIds.size > 0) {
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
     }
 
     prevIdsRef.current = currentIds;
