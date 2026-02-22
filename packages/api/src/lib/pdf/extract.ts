@@ -14,7 +14,7 @@ export interface PdfExtraction {
   totalPages: number;
   /** When OCR fallback was used, this holds the raw text-layer output for cross-checking. */
   textLayerRef?: string;
-  /** Which extraction tier produced this result: 1=pymupdf4llm, 2=tesseract, 3=paddle */
+  /** Which extraction tier produced this result: 1=pymupdf4llm, 2=VLM OCR, 3=legacy paddle */
   ocrTier: 1 | 2 | 3;
 }
 
@@ -39,6 +39,7 @@ const GS_RENDER_SCRIPT = path.join(SCRIPTS_DIR, 'gs_render.py');
 const IMAGE_TO_PAGES_SCRIPT = path.join(SCRIPTS_DIR, 'image_to_pages.py');
 const TESSERACT_SCRIPT = path.join(SCRIPTS_DIR, 'tesseract_ocr.py');
 const PADDLE_SCRIPT = path.join(SCRIPTS_DIR, 'paddle_ocr.py');
+const VLM_PREPROCESS_SCRIPT = path.join(SCRIPTS_DIR, 'vlm_preprocess.py');
 
 /** Supported image extensions (non-PDF documents that go straight to OCR). */
 export const IMAGE_EXTENSIONS = new Set([
@@ -59,17 +60,15 @@ const MIN_NUMBER_MATCH_RATIO = 0.5;
 /**
  * Extract text from a document (PDF or image).
  *
- * Three-tier strategy:
+ * Two-tier strategy:
  * 1. pymupdf4llm (~1 sec) — text-layer extraction, PDF only, works for clean PDFs
- * 2. Tesseract OCR on rendered images (~3 sec) — for broken fonts, clean scans, photos
- * 3. PaddleOCR PP-StructureV3 on same rendered images (~10 sec) — deep learning for poor quality input
+ * 2. VLM OCR (~6 sec) — preprocess (orient + unwarp) then glm-4.6v-flash vision model
  *
  * For PDFs: Ghostscript renders the pages (handles Type3 fonts correctly).
  * For images (HEIC, JPG, PNG, etc.): image is used directly as a single page.
- * Rendering is shared between tiers 2 and 3 — render once, reuse images.
  *
- * Both tier 2 and tier 3 benefit from text-layer cross-reference when available
- * (the LLM verification step in the pipeline uses textLayerRef for both).
+ * Legacy tier 2 (Tesseract) and tier 3 (PaddleOCR) functions are preserved
+ * in this file but not used in the main pipeline.
  */
 export async function extractPdfText(filePath: string): Promise<PdfExtraction> {
   const absolutePath = path.resolve(PROJECT_ROOT, filePath);
@@ -136,10 +135,10 @@ async function extractFromImages(absolutePath: string): Promise<PdfExtraction> {
 }
 
 /**
- * Run the OCR pipeline (tier 2 → tier 3) on pre-rendered page images.
+ * Run the OCR pipeline on pre-rendered page images.
  *
- * Both tiers get textLayerRef attached when available, so the downstream
- * LLM verification step can cross-reference regardless of which tier produced the result.
+ * Tier 2: VLM OCR — preprocess (orient + unwarp) then glm-4.6v-flash.
+ * Falls back to legacy Tesseract → PaddleOCR chain if VLM is unavailable.
  */
 async function runOcrPipeline(
   imageDir: string,
@@ -147,38 +146,64 @@ async function runOcrPipeline(
   textLayerBroken: boolean,
 ): Promise<PdfExtraction> {
   try {
-    // Tier 2: Tesseract OCR
+    const result = await runVlmOcrWithFallback(imageDir);
+    if (textLayerBroken && textLayerResult) {
+      result.textLayerRef = textLayerResult.fullText;
+    }
+    return result;
+  } finally {
+    cleanupImageDir(imageDir);
+  }
+}
+
+/**
+ * Primary OCR: VLM with full legacy fallback chain.
+ * VLM (tier 2) → Tesseract (legacy tier 2) → PaddleOCR (legacy tier 3).
+ */
+async function runVlmOcrWithFallback(imageDir: string): Promise<PdfExtraction> {
+  // Try VLM first (requires ZAI_API_KEY)
+  if (process.env.ZAI_API_KEY) {
+    try {
+      console.log('Tier 2: VLM OCR (preprocess + glm-4.6v-flash)...');
+      const result = await runVlmOcr(imageDir);
+      result.ocrTier = 2;
+      console.log('VLM OCR succeeded');
+      return result;
+    } catch (e) {
+      console.warn('VLM OCR failed, falling back to legacy OCR:', e instanceof Error ? e.message : e);
+    }
+  } else {
+    console.log('Tier 2: ZAI_API_KEY not set, falling back to legacy OCR');
+  }
+
+  // Legacy fallback: Tesseract → PaddleOCR
+  return runLegacyOcrPipeline(imageDir);
+}
+
+/** Legacy OCR fallback: Tesseract with PaddleOCR escalation. */
+async function runLegacyOcrPipeline(imageDir: string): Promise<PdfExtraction> {
+  try {
     const tesseractResult = await runTesseract(imageDir);
-    const quality = assessQuality(tesseractResult, textLayerResult);
+    const quality = assessQuality(tesseractResult, null);
 
     if (quality.accept) {
-      console.log(`Tesseract accepted (${quality.reason})`);
-      const result: PdfExtraction = {
+      console.log(`Legacy Tesseract accepted (${quality.reason})`);
+      return {
         fullText: tesseractResult.fullText,
         pages: tesseractResult.pages,
         totalPages: tesseractResult.totalPages,
         ocrTier: 2,
       };
-      if (textLayerBroken && textLayerResult) {
-        result.textLayerRef = textLayerResult.fullText;
-      }
-      cleanupImageDir(imageDir);
-      return result;
     }
 
-    console.log(`Tesseract rejected (${quality.reason}) — escalating to PaddleOCR`);
-
-    // Tier 3: PaddleOCR PP-StructureV3 (deskew + deep learning OCR)
-    // Produces clean formatted text with items and prices on the same line.
-    const paddleResult = await runPaddleOcr(imageDir);
-    if (textLayerBroken && textLayerResult) {
-      paddleResult.textLayerRef = textLayerResult.fullText;
-    }
-    paddleResult.ocrTier = 3;
-    return paddleResult;
-  } finally {
-    cleanupImageDir(imageDir);
+    console.log(`Legacy Tesseract rejected (${quality.reason}) — escalating to PaddleOCR`);
+  } catch (e) {
+    console.warn('Legacy Tesseract failed:', e instanceof Error ? e.message : e);
   }
+
+  const paddleResult = await runPaddleOcr(imageDir);
+  paddleResult.ocrTier = 3;
+  return paddleResult;
 }
 
 /** Render PDF pages to images with Ghostscript. Returns the image directory path. */
@@ -210,7 +235,7 @@ async function runTesseract(imageDir: string): Promise<TesseractResult> {
   return parseJson<TesseractResult>(stdout, stderr);
 }
 
-/** Run PaddleOCR PP-StructureV3: deskew + OCR → clean formatted text. */
+/** Legacy: Run PaddleOCR on pre-rendered images → clean formatted text. */
 async function runPaddleOcr(imageDir: string): Promise<PdfExtraction> {
   const { stdout, stderr } = await execFileAsync('python', [PADDLE_SCRIPT, imageDir], {
     timeout: 300_000,
@@ -223,6 +248,142 @@ async function runPaddleOcr(imageDir: string): Promise<PdfExtraction> {
     totalPages: result.totalPages,
     ocrTier: 3,
   };
+}
+
+/**
+ * Run VLM OCR via glm-4.6v-flash: send page images to the vision model for text extraction.
+ *
+ * Uses the OpenAI-compatible endpoint at z.ai (free tier model).
+ * Produces cleaner output than PaddleOCR for most receipt/invoice images.
+ *
+ * Preprocessing pipeline (via vlm_preprocess.py):
+ * 1. Orientation detection (PP-LCNet) — auto-rotate 0/90/180/270
+ * 2. Unwarping (UVDoc) — flatten curved/folded documents
+ * 3. JPEG q90, capped at 5MB — maximize quality for VLM
+ * Falls back to simple resize if PaddleX is unavailable.
+ */
+async function runVlmOcr(imageDir: string): Promise<PdfExtraction> {
+  const apiKey = process.env.ZAI_API_KEY;
+  if (!apiKey) throw new Error('ZAI_API_KEY required for VLM OCR');
+
+  // Count page images
+  let pageCount = 0;
+  while (fs.existsSync(path.join(imageDir, `page_${pageCount + 1}.png`))) {
+    pageCount++;
+  }
+  if (pageCount === 0) {
+    throw new Error(`No page_*.png images found in ${imageDir}`);
+  }
+
+  // Preprocess: orient + unwarp + JPEG (or fall back to simple resize)
+  const pageBase64s = await preprocessImagesForVlm(imageDir, pageCount);
+
+  const VLM_MODEL = 'glm-4.6v-flash';
+  const VLM_ENDPOINT = 'https://api.z.ai/api/paas/v4/chat/completions';
+  const VLM_PROMPT = `Extract ALL text from this document image exactly as it appears, preserving layout.
+Rules:
+- Each line of text should be its own line in your output
+- Items and their prices should be on the same line, separated by spaces
+- Preserve all numbers, prices, dates, and codes exactly
+- Include headers, footers, barcodes text, everything visible
+- Output ONLY the raw extracted text, no commentary, no markdown formatting`;
+
+  const pageTexts: string[] = [];
+
+  for (let i = 0; i < pageBase64s.length; i++) {
+    try {
+      const payload = {
+        model: VLM_MODEL,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${pageBase64s[i]}` } },
+            { type: 'text', text: VLM_PROMPT },
+          ],
+        }],
+        stream: false,
+        max_tokens: 4096,
+      };
+
+      const resp = await fetch(VLM_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(120_000),
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`VLM API ${resp.status}: ${errText}`);
+      }
+
+      const result = await resp.json() as {
+        choices: { message: { content: string } }[];
+      };
+      const text = result.choices?.[0]?.message?.content?.trim() || '[No VLM output]';
+      pageTexts.push(text);
+    } catch (e) {
+      pageTexts.push(`[VLM OCR failed: ${e instanceof Error ? e.message : e}]`);
+    }
+  }
+
+  const fullText = pageTexts.join('\n\n---\n\n');
+  return {
+    fullText,
+    pages: pageTexts,
+    totalPages: pageCount,
+    ocrTier: 2,
+  };
+}
+
+/**
+ * Preprocess page images for VLM: orientation correction, unwarping, JPEG conversion.
+ *
+ * Tries the full PaddleX pipeline (vlm_preprocess.py) first. If unavailable
+ * (PaddleX not installed, model download fails, etc.), falls back to simple
+ * Pillow resize — still produces usable JPEG, just without orient/unwarp.
+ *
+ * Returns an array of base64-encoded JPEG strings, one per page.
+ */
+async function preprocessImagesForVlm(imageDir: string, pageCount: number): Promise<string[]> {
+  // Try full preprocessing pipeline (orient + unwarp + JPEG q90)
+  try {
+    console.log('VLM preprocess: running orientation + unwarping pipeline...');
+    const { stdout, stderr } = await execFileAsync('python', [VLM_PREPROCESS_SCRIPT, imageDir], {
+      timeout: 300_000,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    if (stderr) {
+      // Log preprocessing details (model loading, rotation info, etc.)
+      for (const line of stderr.split('\n').filter(Boolean)) {
+        console.log(`  ${line.trim()}`);
+      }
+    }
+    const result = parseJson<{ pages: { page: number; file: string; rotated: number; unwarped: boolean }[] }>(stdout, stderr);
+
+    // Read preprocessed JPEGs as base64
+    const base64s: string[] = [];
+    for (const pageInfo of result.pages) {
+      const jpegPath = path.join(imageDir, pageInfo.file);
+      const buf = fs.readFileSync(jpegPath);
+      base64s.push(buf.toString('base64'));
+    }
+    console.log(`VLM preprocess: ${base64s.length} pages ready`);
+    return base64s;
+  } catch (e) {
+    console.warn('VLM preprocess pipeline failed, using simple resize fallback:', e instanceof Error ? e.message : e);
+  }
+
+  // Fallback: simple Pillow resize (no orient/unwarp, but still works)
+  const base64s: string[] = [];
+  for (let i = 1; i <= pageCount; i++) {
+    const imgPath = path.join(imageDir, `page_${i}.png`);
+    base64s.push(await resizeImageForVlm(imgPath, 2000));
+  }
+  return base64s;
 }
 
 /** Run pymupdf4llm text-layer extraction. */
@@ -241,8 +402,9 @@ async function runPymupdf(pdfPath: string): Promise<PdfExtraction> {
 }
 
 /**
- * Re-extract using a specific OCR tier (2=Tesseract, 3=PaddleOCR).
- * Used for targeted reprocessing when the user wants a higher-quality extraction.
+ * Re-extract using a specific OCR tier.
+ * Tier 2 = VLM OCR (primary), Tier 3 = legacy PaddleOCR (manual override).
+ * Used for targeted reprocessing when the user wants a different extraction.
  */
 export async function extractWithTier(filePath: string, targetTier: 2 | 3): Promise<PdfExtraction> {
   const absolutePath = path.resolve(PROJECT_ROOT, filePath);
@@ -272,18 +434,13 @@ export async function extractWithTier(filePath: string, targetTier: 2 | 3): Prom
 
   try {
     if (targetTier === 2) {
-      const tesseractResult = await runTesseract(imageDir);
-      const result: PdfExtraction = {
-        fullText: tesseractResult.fullText,
-        pages: tesseractResult.pages,
-        totalPages: tesseractResult.totalPages,
-        ocrTier: 2,
-      };
+      // Tier 2: VLM OCR (with full legacy fallback)
+      const result = await runVlmOcrWithFallback(imageDir);
       if (textLayerRef) result.textLayerRef = textLayerRef;
       return result;
     }
 
-    // Tier 3: PaddleOCR
+    // Tier 3: legacy PaddleOCR (manual override)
     const paddleResult = await runPaddleOcr(imageDir);
     paddleResult.ocrTier = 3;
     if (textLayerRef) paddleResult.textLayerRef = textLayerRef;
@@ -395,6 +552,32 @@ function parseJson<T>(stdout: string, stderr: string): T {
     } catch { /* use raw stderr */ }
     throw new Error(`Script failed: ${errMsg}`);
   }
+}
+
+/**
+ * Resize an image to fit within maxDim pixels (longest side) and return as JPEG base64.
+ * Uses Python/Pillow since sharp is not installed. Avoids sending oversized images
+ * to the VLM API (5MB limit, token cost scales with pixel area).
+ */
+async function resizeImageForVlm(imgPath: string, maxDim: number): Promise<string> {
+  const script = `
+import sys, io, base64
+from PIL import Image
+img = Image.open(sys.argv[1])
+ratio = ${maxDim} / max(img.size)
+if ratio < 1:
+    img = img.resize((int(img.size[0]*ratio), int(img.size[1]*ratio)), Image.LANCZOS)
+if img.mode in ('RGBA', 'P'):
+    img = img.convert('RGB')
+buf = io.BytesIO()
+img.save(buf, format='JPEG', quality=85)
+sys.stdout.write(base64.b64encode(buf.getvalue()).decode('ascii'))
+`;
+  const { stdout } = await execFileAsync('python', ['-c', script, imgPath], {
+    timeout: 30_000,
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  return stdout;
 }
 
 /** Clean up temporary image directory. */

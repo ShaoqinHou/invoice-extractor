@@ -36,28 +36,14 @@ logging.getLogger("paddle").setLevel(logging.ERROR)
 MIN_CONFIDENCE = 0.30
 
 
-def build_clean_text(res: dict, img_width: int, img_height: int) -> str:
-    """Build clean formatted text from OCR results.
+def build_clean_text(fragments: list[tuple[str, int, int]]) -> str:
+    """Build clean formatted text from (text, y, x) fragments.
 
-    Groups OCR lines by y-position (same-row items), then joins them
+    Groups fragments by y-position (same-row items), then joins them
     into single lines separated by spaces. This produces a document
     where items and their prices appear on the same line — exactly
     what an LLM expects for invoice parsing.
     """
-    texts = res.get("rec_texts", [])
-    scores = res.get("rec_scores", [])
-    boxes = res.get("rec_boxes", [])
-    if hasattr(boxes, "tolist"):
-        boxes = boxes.tolist()
-
-    # Collect valid text fragments with positions
-    fragments = []
-    for text, score, box in zip(texts, scores, boxes):
-        if score < MIN_CONFIDENCE or not text.strip():
-            continue
-        x_min, y_min = int(box[0]), int(box[1])
-        fragments.append((text.strip(), y_min, x_min))
-
     if not fragments:
         return "[No text detected]"
 
@@ -77,7 +63,6 @@ def build_clean_text(res: dict, img_width: int, img_height: int) -> str:
     output_lines = []
     for row in rows:
         row.sort(key=lambda f: f[2])
-        # Join fragments on the same row with spaces
         line = "    ".join(f[0] for f in row)
         output_lines.append(line)
 
@@ -85,8 +70,12 @@ def build_clean_text(res: dict, img_width: int, img_height: int) -> str:
 
 
 def extract(image_dir: str) -> dict:
-    """Run PP-StructureV3 on all page images, produce clean text."""
-    from paddleocr import PPStructureV3
+    """Run PaddleOCR on all page images, produce clean text.
+
+    Uses the lightweight PaddleOCR class (det + rec only) instead of the
+    heavy PPStructureV3 pipeline, which loads ~7 models and needs >4GB RAM.
+    """
+    from paddleocr import PaddleOCR
     from PIL import Image
 
     # Find page images in order
@@ -102,31 +91,45 @@ def extract(image_dir: str) -> dict:
     if not images:
         raise FileNotFoundError(f"No page_*.png images found in {image_dir}")
 
-    # Load PP-StructureV3 ONCE for all pages
-    pipeline = PPStructureV3(
-        use_doc_orientation_classify=True,
-        use_doc_unwarping=True,
-        use_table_recognition=False,
-        use_formula_recognition=False,
-        use_seal_recognition=False,
-        use_chart_recognition=False,
-    )
+    # Load PaddleOCR ONCE for all pages
+    ocr = PaddleOCR(lang="en", use_angle_cls=True)
 
     page_texts: list[str] = []
 
     for img_path in images:
         try:
-            with Image.open(img_path) as img:
-                img_w, img_h = img.size
-
-            results = list(pipeline.predict(input=img_path))
-            if not results:
+            result = ocr.ocr(img_path)
+            if not result or not result[0]:
                 page_texts.append("[No OCR results]")
                 continue
 
-            res = results[0].json
-            ocr_res = res["res"]["overall_ocr_res"]
-            page_text = build_clean_text(ocr_res, img_w, img_h)
+            ocr_result = result[0]
+
+            # PaddleOCR v3+ returns OCRResult dict with rec_texts, rec_scores, dt_polys
+            # Older versions returned [[box, (text, score)], ...]
+            if hasattr(ocr_result, "keys") and "rec_texts" in ocr_result:
+                rec_texts = ocr_result["rec_texts"]
+                rec_scores = ocr_result["rec_scores"]
+                dt_polys = ocr_result["dt_polys"]
+                fragments = []
+                for text, score, poly in zip(rec_texts, rec_scores, dt_polys):
+                    if score < MIN_CONFIDENCE or not text.strip():
+                        continue
+                    x_min = int(min(p[0] for p in poly))
+                    y_min = int(min(p[1] for p in poly))
+                    fragments.append((text.strip(), y_min, x_min))
+            else:
+                # Legacy format: [[box, (text, score)], ...]
+                fragments = []
+                for line in ocr_result:
+                    box, (text, score) = line
+                    if score < MIN_CONFIDENCE or not text.strip():
+                        continue
+                    x_min = int(min(p[0] for p in box))
+                    y_min = int(min(p[1] for p in box))
+                    fragments.append((text.strip(), y_min, x_min))
+
+            page_text = build_clean_text(fragments)
             page_texts.append(page_text)
 
         except Exception as e:

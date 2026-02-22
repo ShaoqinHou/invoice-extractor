@@ -155,21 +155,18 @@ def assess_quality(tesseract_result: dict, text_layer_ref: str | None) -> dict:
 
 
 def run_paddle(image_dir: str) -> dict:
-    """Run PaddleOCR PP-StructureV3 on page images. Loads model lazily."""
+    """Run PaddleOCR on page images. Loads model lazily.
+
+    Uses the lightweight PaddleOCR class (det + rec only) instead of the
+    heavy PPStructureV3 pipeline, which loads ~7 models and needs >4GB RAM.
+    """
     global _paddle_pipeline
 
     if _paddle_pipeline is None:
         sys.stderr.write("ocr_worker: loading PaddleOCR model...\n")
         sys.stderr.flush()
-        from paddleocr import PPStructureV3
-        _paddle_pipeline = PPStructureV3(
-            use_doc_orientation_classify=True,
-            use_doc_unwarping=True,
-            use_table_recognition=False,
-            use_formula_recognition=False,
-            use_seal_recognition=False,
-            use_chart_recognition=False,
-        )
+        from paddleocr import PaddleOCR
+        _paddle_pipeline = PaddleOCR(lang="en", use_angle_cls=True)
         sys.stderr.write("ocr_worker: PaddleOCR model loaded\n")
         sys.stderr.flush()
 
@@ -181,17 +178,37 @@ def run_paddle(image_dir: str) -> dict:
 
     for img_path in images:
         try:
-            with Image.open(img_path) as img:
-                img_w, img_h = img.size
-
-            results = list(_paddle_pipeline.predict(input=img_path))
-            if not results:
+            result = _paddle_pipeline.ocr(img_path)
+            if not result or not result[0]:
                 page_texts.append("[No OCR results]")
                 continue
 
-            res = results[0].json
-            ocr_res = res["res"]["overall_ocr_res"]
-            page_text = build_clean_text(ocr_res, img_w, img_h)
+            ocr_result = result[0]
+
+            # PaddleOCR v3+ returns OCRResult dict with rec_texts, rec_scores, dt_polys
+            # Older versions returned [[box, (text, score)], ...]
+            fragments = []
+            if hasattr(ocr_result, "keys") and "rec_texts" in ocr_result:
+                for text, score, poly in zip(ocr_result["rec_texts"], ocr_result["rec_scores"], ocr_result["dt_polys"]):
+                    if score < MIN_PADDLE_CONFIDENCE or not text.strip():
+                        continue
+                    x_min = int(min(p[0] for p in poly))
+                    y_min = int(min(p[1] for p in poly))
+                    fragments.append((text.strip(), y_min, x_min))
+            else:
+                for line in ocr_result:
+                    box, (text, score) = line
+                    if score < MIN_PADDLE_CONFIDENCE or not text.strip():
+                        continue
+                    x_min = int(min(p[0] for p in box))
+                    y_min = int(min(p[1] for p in box))
+                    fragments.append((text.strip(), y_min, x_min))
+
+            if not fragments:
+                page_texts.append("[No text detected]")
+                continue
+
+            page_text = build_clean_text_from_fragments(fragments)
             page_texts.append(page_text)
         except Exception as e:
             page_texts.append(f"[PaddleOCR failed: {e}]")
@@ -203,21 +220,12 @@ def run_paddle(image_dir: str) -> dict:
     }
 
 
-def build_clean_text(res: dict, img_width: int, img_height: int) -> str:
-    """Build clean formatted text from PaddleOCR results."""
-    texts = res.get("rec_texts", [])
-    scores = res.get("rec_scores", [])
-    boxes = res.get("rec_boxes", [])
-    if hasattr(boxes, "tolist"):
-        boxes = boxes.tolist()
+def build_clean_text_from_fragments(fragments: list[tuple[str, int, int]]) -> str:
+    """Build clean formatted text from (text, y, x) fragments.
 
-    fragments = []
-    for text, score, box in zip(texts, scores, boxes):
-        if score < MIN_PADDLE_CONFIDENCE or not text.strip():
-            continue
-        x_min, y_min = int(box[0]), int(box[1])
-        fragments.append((text.strip(), y_min, x_min))
-
+    Groups fragments by y-position (same-row items), then joins them
+    into single lines separated by spaces.
+    """
     if not fragments:
         return "[No text detected]"
 
