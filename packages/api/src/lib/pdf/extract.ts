@@ -164,7 +164,7 @@ export async function runVlmOcrWithFallback(imageDir: string): Promise<PdfExtrac
   // Try VLM first (requires ZAI_API_KEY)
   if (process.env.ZAI_API_KEY) {
     try {
-      console.log('Tier 2: VLM OCR (preprocess + glm-4.6v-flash)...');
+      console.log(`Tier 2: VLM OCR (preprocess + ${process.env.ZAI_MODEL || 'glm-4.7'})...`);
       const result = await runVlmOcr(imageDir);
       result.ocrTier = 2;
       console.log('VLM OCR succeeded');
@@ -278,7 +278,7 @@ async function runVlmOcr(imageDir: string): Promise<PdfExtraction> {
   // Preprocess: orient + unwarp + JPEG (or fall back to simple resize)
   const pageBase64s = await preprocessImagesForVlm(imageDir, pageCount);
 
-  const VLM_MODEL = 'glm-4.6v-flash';
+  const VLM_MODEL = process.env.ZAI_MODEL || 'glm-4.7';
   const VLM_ENDPOINT = 'https://api.z.ai/api/paas/v4/chat/completions';
   const VLM_PROMPT = `Extract ALL text from this document image exactly as it appears, preserving layout.
 Rules:
