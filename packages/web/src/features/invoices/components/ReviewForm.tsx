@@ -24,15 +24,27 @@ interface ReviewFormProps {
 
 const EXCEPTION_MESSAGES: Record<string, { title: string; description: string }> = {
   scan_quality: {
-    title: "Poor Scan Quality",
+    title: "Scan Quality",
     description: "OCR confidence is low. Values may be inaccurate — please verify carefully.",
   },
-  investigate: {
-    title: "Amounts Need Investigation",
-    description: "Line items may not add up, or GST calculation appears off.",
+  duplicate: {
+    title: "Duplicate Invoice",
+    description: "This supplier already has an invoice with this number on file.",
+  },
+  amount_mismatch: {
+    title: "Amount Mismatch",
+    description: "Line item totals do not add up to the invoice total.",
+  },
+  no_gst: {
+    title: "No GST",
+    description: "GST number was not found on the invoice.",
+  },
+  gst_mismatch: {
+    title: "GST Mismatch",
+    description: "GST amount was not found, not indicated, or is not 15%.",
   },
   value_mismatch: {
-    title: "Supplier Mismatch",
+    title: "Value Mismatch",
     description: "Supplier details differ from the supplier master record.",
   },
 };

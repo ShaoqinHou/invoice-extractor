@@ -60,14 +60,14 @@ export function InvoicesPage() {
     setSelectedIds(new Set());
   }
 
-  function exportCSV(ids: Set<number>) {
+  function exportInvoices(ids: Set<number>, format: "csv" | "xlsx") {
     if (ids.size === 0) return;
     // Download each invoice as a separate file via hidden iframes
     // (browsers block multiple a.click() downloads from one handler)
     for (const id of ids) {
       const iframe = document.createElement("iframe");
       iframe.style.display = "none";
-      iframe.src = `${API_BASE}/invoices/download?ids=${id}&format=csv`;
+      iframe.src = `${API_BASE}/invoices/download?ids=${id}&format=${format}`;
       document.body.appendChild(iframe);
       setTimeout(() => iframe.remove(), 30000);
     }
@@ -93,11 +93,20 @@ export function InvoicesPage() {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => exportCSV(selectedIds)}
+            onClick={() => exportInvoices(selectedIds, "csv")}
             disabled={selectedIds.size === 0}
           >
             <Download className="h-4 w-4" />
-            Export CSV
+            CSV
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => exportInvoices(selectedIds, "xlsx")}
+            disabled={selectedIds.size === 0}
+          >
+            <Download className="h-4 w-4" />
+            Excel
           </Button>
           <Button
             variant="primary"
@@ -167,11 +176,18 @@ export function InvoicesPage() {
               Delete
             </button>
             <button
-              onClick={() => exportCSV(selectedIds)}
+              onClick={() => exportInvoices(selectedIds, "csv")}
               className="flex items-center gap-1 text-sm text-[#0078c8] hover:text-[#006bb3]"
             >
               <Download className="h-3.5 w-3.5" />
-              Export
+              CSV
+            </button>
+            <button
+              onClick={() => exportInvoices(selectedIds, "xlsx")}
+              className="flex items-center gap-1 text-sm text-[#0078c8] hover:text-[#006bb3]"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Excel
             </button>
           </div>
         )}

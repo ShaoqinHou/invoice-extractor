@@ -10,7 +10,13 @@ export type InvoiceStatus =
   | "complete"
   | "error";
 
-export type ExceptionType = "scan_quality" | "investigate" | "value_mismatch";
+export type ExceptionType =
+  | "scan_quality"
+  | "duplicate"
+  | "amount_mismatch"
+  | "no_gst"
+  | "gst_mismatch"
+  | "value_mismatch";
 
 export interface Invoice {
   id: number;

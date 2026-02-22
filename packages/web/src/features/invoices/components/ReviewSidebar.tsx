@@ -72,6 +72,7 @@ export function ReviewSidebar() {
                   }`}
                 >
                   <div className="flex items-center gap-1.5">
+                    <StatusBadge status={inv.status} exceptionType={inv.exception_type} compact />
                     {isActive && (
                       <span className="block h-1.5 w-1.5 rounded-full bg-[#0078c8] flex-shrink-0" />
                     )}
@@ -80,13 +81,8 @@ export function ReviewSidebar() {
                     </span>
                   </div>
                   {inv.total_amount != null && (
-                    <div className="mt-0.5 tabular-nums text-gray-400">
+                    <div className="mt-0.5 pl-[26px] tabular-nums text-gray-400">
                       ${inv.total_amount.toFixed(2)}
-                    </div>
-                  )}
-                  {inv.status && inv.status !== "draft" && (
-                    <div className="mt-0.5">
-                      <StatusBadge status={inv.status} />
                     </div>
                   )}
                 </Link>
