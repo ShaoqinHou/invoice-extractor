@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoiceKeys } from "./keys";
+import { API_BASE } from "@web/lib/api";
 
 interface UploadResult {
   id: number;
@@ -22,7 +23,7 @@ export function useUpload() {
       formData.append("file", file);
 
       // Do NOT set Content-Type — let browser set multipart boundary
-      const res = await fetch("/api/invoices", {
+      const res = await fetch(`${API_BASE}/invoices`, {
         method: "POST",
         body: formData,
       });

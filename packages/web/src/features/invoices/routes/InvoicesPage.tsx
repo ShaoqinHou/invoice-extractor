@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { Upload, Download, Search, X } from "lucide-react";
+import { API_BASE } from "@web/lib/api";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { Button } from "../../../components/ui/Button";
 import { InvoiceTable } from "../components/InvoiceTable";
@@ -66,7 +67,7 @@ export function InvoicesPage() {
     for (const id of ids) {
       const iframe = document.createElement("iframe");
       iframe.style.display = "none";
-      iframe.src = `/api/invoices/download?ids=${id}&format=csv`;
+      iframe.src = `${API_BASE}/invoices/download?ids=${id}&format=csv`;
       document.body.appendChild(iframe);
       setTimeout(() => iframe.remove(), 30000);
     }

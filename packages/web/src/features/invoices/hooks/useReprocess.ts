@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoiceKeys } from "./keys";
+import { API_BASE } from "@web/lib/api";
 
 interface ReprocessPayload {
   id: number;
@@ -11,7 +12,7 @@ export function useReprocess() {
 
   return useMutation<void, Error, ReprocessPayload>({
     mutationFn: async ({ id, tier }) => {
-      const res = await fetch(`/api/invoices/${id}/reprocess`, {
+      const res = await fetch(`${API_BASE}/invoices/${id}/reprocess`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tier }),

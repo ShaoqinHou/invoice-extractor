@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoiceKeys } from "./keys";
+import { API_BASE } from "@web/lib/api";
 
 interface ApprovePayload {
   id: number;
@@ -25,7 +26,7 @@ export function useApprove() {
 
   return useMutation<ApproveResult, Error, ApprovePayload>({
     mutationFn: async ({ id, ...body }) => {
-      const res = await fetch(`/api/invoices/${id}/approve`, {
+      const res = await fetch(`${API_BASE}/invoices/${id}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

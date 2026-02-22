@@ -1,3 +1,5 @@
+import { API_BASE } from "@web/lib/api";
+
 interface PdfViewerProps {
   invoiceId: number;
   filename: string;
@@ -7,7 +9,7 @@ const IMAGE_EXTENSIONS = new Set([".heic", ".heif", ".jpg", ".jpeg", ".png", ".t
 
 export function PdfViewer({ invoiceId, filename }: PdfViewerProps) {
   const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
-  const fileUrl = `/api/invoices/${invoiceId}/file`;
+  const fileUrl = `${API_BASE}/invoices/${invoiceId}/file`;
   const isImage = IMAGE_EXTENSIONS.has(ext);
 
   if (isImage) {

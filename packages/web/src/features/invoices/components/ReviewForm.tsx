@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { AlertTriangle } from "lucide-react";
+import { API_BASE } from "@web/lib/api";
 import { Button } from "../../../components/ui/Button";
 import { OcrTierBadge } from "./OcrTierBadge";
 import { TierReprocessButtons } from "./TierReprocessButtons";
@@ -92,7 +93,7 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
 
   async function handleSkip() {
     try {
-      const res = await fetch("/api/invoices/awaiting");
+      const res = await fetch(`${API_BASE}/invoices/awaiting`);
       const data = await res.json();
       const others = data.invoices?.filter((i: { id: number }) => i.id !== invoice.id);
       if (others?.length > 0) {
@@ -111,7 +112,7 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
       // Try to find next awaiting invoice before deleting
       let nextId: number | null = null;
       try {
-        const res = await fetch("/api/invoices/awaiting");
+        const res = await fetch(`${API_BASE}/invoices/awaiting`);
         const data = await res.json();
         const others = data.invoices?.filter((i: { id: number }) => i.id !== invoice.id);
         if (others?.length > 0) nextId = others[0].id;

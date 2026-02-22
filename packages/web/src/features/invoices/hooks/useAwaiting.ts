@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoiceKeys } from "./keys";
+import { API_BASE } from "@web/lib/api";
 import type { Invoice } from "../types";
 
 interface AwaitingResponse {
@@ -14,7 +15,7 @@ export function useAwaiting() {
   const query = useQuery<Invoice[]>({
     queryKey: invoiceKeys.awaiting(),
     queryFn: async () => {
-      const res = await fetch("/api/invoices/awaiting");
+      const res = await fetch(`${API_BASE}/invoices/awaiting`);
       if (!res.ok) throw new Error("Failed to fetch awaiting invoices");
       const data: AwaitingResponse = await res.json();
       return data.invoices ?? [];
@@ -37,7 +38,7 @@ export function useAwaiting() {
         queryClient.prefetchQuery({
           queryKey: invoiceKeys.detail(id),
           queryFn: async () => {
-            const res = await fetch(`/api/invoices/${id}`);
+            const res = await fetch(`${API_BASE}/invoices/${id}`);
             if (!res.ok) throw new Error("Failed to fetch invoice");
             return res.json();
           },

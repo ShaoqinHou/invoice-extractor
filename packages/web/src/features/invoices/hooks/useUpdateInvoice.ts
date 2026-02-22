@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoiceKeys } from "./keys";
+import { API_BASE } from "@web/lib/api";
 import type { Invoice } from "../types";
 
 interface UpdatePayload {
@@ -12,7 +13,7 @@ export function useUpdateInvoice() {
 
   return useMutation<Invoice, Error, UpdatePayload>({
     mutationFn: async ({ id, data }) => {
-      const res = await fetch(`/api/invoices/${id}`, {
+      const res = await fetch(`${API_BASE}/invoices/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
