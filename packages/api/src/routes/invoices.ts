@@ -173,7 +173,8 @@ function buildInvoiceCsv(inv: InvoiceRow, entries: EntryRow[]): string {
 }
 
 async function buildExcelBuffer(data: InvoiceData[]): Promise<Buffer> {
-  const ExcelJS = await import('exceljs');
+  const ExcelJSModule = await import('exceljs');
+  const ExcelJS = ExcelJSModule.default ?? ExcelJSModule;
   const workbook = new ExcelJS.Workbook();
 
   for (const { inv, entries } of data) {
@@ -646,19 +647,24 @@ export function invoiceRoutes(db: BetterSQLite3Database) {
           }
 
           const jpegBuffer = fs.readFileSync(fullJpegPath);
+          const baseName = path.basename(invoice.original_filename, path.extname(invoice.original_filename));
+          const safeHeicName = `${baseName.replace(/[^\x20-\x7E]/g, '_')}.jpg`;
+          const encodedHeicName = encodeURIComponent(`${baseName}.jpg`);
           return c.body(jpegBuffer, 200, {
             'Content-Type': 'image/jpeg',
-            'Content-Disposition': `inline; filename="${path.basename(invoice.original_filename, path.extname(invoice.original_filename))}.jpg"`,
+            'Content-Disposition': `inline; filename="${safeHeicName}"; filename*=UTF-8''${encodedHeicName}`,
             'Cache-Control': 'private, max-age=3600',
           });
         }
 
         const buffer = await readUploadedFile(invoice.file_path);
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+        const safeName = invoice.original_filename.replace(/[^\x20-\x7E]/g, '_');
+        const encodedName = encodeURIComponent(invoice.original_filename);
 
         return c.body(buffer, 200, {
           'Content-Type': contentType,
-          'Content-Disposition': `inline; filename="${invoice.original_filename}"`,
+          'Content-Disposition': `inline; filename="${safeName}"; filename*=UTF-8''${encodedName}`,
           'Cache-Control': 'private, max-age=3600',
         });
       } catch (err) {
