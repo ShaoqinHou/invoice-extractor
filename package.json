@@ -1,0 +1,17 @@
+{
+  "name": "invoice-extractor",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=packages/api",
+    "dev:web": "npm run dev --workspace=packages/web",
+    "dev:all": "npm run dev:api & npm run dev:web",
+    "build": "npm run build --workspace=packages/web"
+  },
+  "devDependencies": {
+    "playwright": "^1.58.2"
+  }
+}

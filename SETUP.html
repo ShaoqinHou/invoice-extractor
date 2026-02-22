@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invoice Extractor — Setup Guide</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d1117;
+    color: #c9d1d9;
+    line-height: 1.7;
+    padding: 40px 20px;
+  }
+  .container { max-width: 860px; margin: 0 auto; }
+  h1 {
+    font-size: 2.2em;
+    color: #58a6ff;
+    border-bottom: 2px solid #21262d;
+    padding-bottom: 16px;
+    margin-bottom: 40px;
+  }
+  h2 {
+    font-size: 1.5em;
+    color: #58a6ff;
+    margin-top: 50px;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #21262d;
+  }
+  h3 {
+    font-size: 1.1em;
+    color: #d2a8ff;
+    margin-top: 24px;
+    margin-bottom: 8px;
+  }
+  p { margin-bottom: 12px; }
+  ul, ol { margin: 0 0 16px 24px; }
+  li { margin-bottom: 6px; }
+  strong { color: #e6edf3; }
+  code {
+    background: #161b22;
+    color: #79c0ff;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.9em;
+  }
+  pre {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    margin: 12px 0 20px 0;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.88em;
+    line-height: 1.6;
+    color: #c9d1d9;
+  }
+  pre .comment { color: #8b949e; }
+  pre .cmd { color: #79c0ff; }
+  pre .flag { color: #d2a8ff; }
+  pre .string { color: #a5d6ff; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px 0;
+    font-size: 0.92em;
+  }
+  th {
+    background: #161b22;
+    color: #58a6ff;
+    text-align: left;
+    padding: 10px 14px;
+    border: 1px solid #30363d;
+    font-weight: 600;
+  }
+  td {
+    padding: 8px 14px;
+    border: 1px solid #30363d;
+  }
+  tr:nth-child(even) { background: #0d1117; }
+  tr:nth-child(odd) { background: #161b22; }
+  td code {
+    background: #0d1117;
+    border: 1px solid #30363d;
+  }
+  .tip {
+    background: #0b2e1a;
+    border-left: 4px solid #3fb950;
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 12px 0 20px 0;
+  }
+  .tip strong { color: #3fb950; }
+  .warning {
+    background: #2d1a0e;
+    border-left: 4px solid #f85149;
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 12px 0 20px 0;
+  }
+  .warning strong { color: #f85149; }
+  .info {
+    background: #0d1d30;
+    border-left: 4px solid #58a6ff;
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 12px 0 20px 0;
+  }
+  .info strong { color: #58a6ff; }
+  hr {
+    border: none;
+    border-top: 1px solid #21262d;
+    margin: 40px 0;
+  }
+  .toc {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 40px;
+  }
+  .toc a {
+    color: #58a6ff;
+    text-decoration: none;
+    display: block;
+    padding: 4px 0;
+  }
+  .toc a:hover { text-decoration: underline; }
+  .step-num {
+    display: inline-block;
+    background: #58a6ff;
+    color: #0d1117;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 24px;
+    font-size: 0.8em;
+    font-weight: 700;
+    margin-right: 8px;
+  }
+  .diagram {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 12px 0 20px 0;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.9em;
+    line-height: 1.8;
+    color: #7ee787;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Invoice Extractor — Setup Guide</h1>
+
+<div class="toc">
+  <strong style="color:#e6edf3; font-size:1.1em;">Contents</strong>
+  <a href="#overview">1. Overview</a>
+  <a href="#architecture">2. Architecture</a>
+  <a href="#prerequisites">3. Prerequisites</a>
+  <a href="#quick-start">4. Quick Start (Dev)</a>
+  <a href="#env">5. Environment Variables</a>
+  <a href="#linux">6. Linux Server Setup</a>
+  <a href="#systemd">7. Systemd Service</a>
+  <a href="#nginx">8. Nginx Reverse Proxy</a>
+  <a href="#database">9. Database</a>
+  <a href="#pipeline">10. OCR Pipeline</a>
+  <a href="#project-structure">11. Project Structure</a>
+  <a href="#troubleshooting">12. Troubleshooting</a>
+</div>
+
+<!-- ============================================ -->
+<h2 id="overview">1. Overview</h2>
+
+<p>The Invoice Extractor is a Next.js web application that processes PDF invoices through a 3-tier OCR pipeline, extracts structured data using an LLM, and presents the results for human review and approval.</p>
+
+<div class="diagram">
+Upload PDF &nbsp;→&nbsp; OCR Pipeline &nbsp;→&nbsp; LLM Extraction &nbsp;→&nbsp; Human Review &nbsp;→&nbsp; Approved<br>
+<span style="color:#8b949e;">(drag &amp; drop)</span> &nbsp;&nbsp;
+<span style="color:#8b949e;">(3 tiers)</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<span style="color:#8b949e;">(Anthropic API)</span> &nbsp;&nbsp;&nbsp;
+<span style="color:#8b949e;">(split pane)</span> &nbsp;&nbsp;&nbsp;&nbsp;
+<span style="color:#8b949e;">(export CSV/XLSX)</span>
+</div>
+
+<p><strong>OCR Tiers</strong> (automatic fallback):</p>
+<table>
+  <tr><th>Tier</th><th>Tool</th><th>When Used</th></tr>
+  <tr><td>1</td><td>PyMuPDF4LLM</td><td>First attempt — fast, text-layer PDFs</td></tr>
+  <tr><td>2</td><td>Tesseract OCR</td><td>Fallback if Tier 1 gets poor text quality</td></tr>
+  <tr><td>3</td><td>PaddleOCR</td><td>Final fallback — deep-learning, handles scanned/photo invoices</td></tr>
+</table>
+
+<!-- ============================================ -->
+<hr>
+<h2 id="architecture">2. Architecture</h2>
+
+<div class="diagram">
+┌─────────────────────────────────────────────┐<br>
+│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Next.js (Node.js) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+│ &nbsp;React UI ←──→ API Routes ←──→ SQLite &nbsp;&nbsp;&nbsp;│<br>
+│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;┌───────┼───────┐ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;▼ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;▼ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;▼ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Python &nbsp;Python &nbsp;Python &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Tier 1 &nbsp;Tier 2 &nbsp;Tier 3 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;▼ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+│ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;LLM API (Anthropic) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+└─────────────────────────────────────────────┘
+</div>
+
+<ul>
+  <li><strong>Frontend</strong>: React 19, Tailwind CSS v4, Server Components + Client Components</li>
+  <li><strong>Backend</strong>: Next.js API Routes (App Router), Drizzle ORM, SQLite</li>
+  <li><strong>OCR</strong>: Python worker processes (persistent, communicating via stdin/stdout NDJSON)</li>
+  <li><strong>LLM</strong>: Anthropic SDK (can point to z.ai proxy or Anthropic API directly)</li>
+</ul>
+
+<!-- ============================================ -->
+<hr>
+<h2 id="prerequisites">3. Prerequisites</h2>
+
+<h3>Required</h3>
+<table>
+  <tr><th>Tool</th><th>Version</th><th>Check</th></tr>
+  <tr><td>Node.js</td><td>20+</td><td><code>node --version</code></td></tr>
+  <tr><td>npm</td><td>10+</td><td><code>npm --version</code></td></tr>
+  <tr><td>Python</td><td>3.10+</td><td><code>python3 --version</code></td></tr>
+</table>
+
+<h3>Required for OCR Pipeline</h3>
+<table>
+  <tr><th>Tool</th><th>Install (Ubuntu/Debian)</th><th>Used By</th></tr>
+  <tr><td>Ghostscript</td><td><code>sudo apt install ghostscript</code></td><td>PDF → image rendering</td></tr>
+  <tr><td>Tesseract</td><td><code>sudo apt install tesseract-ocr</code></td><td>Tier 2 OCR</td></tr>
+</table>
+
+<h3>Python Packages</h3>
+<pre><span class="cmd">pip3 install</span> pymupdf4llm pymupdf pytesseract Pillow
+<span class="comment"># Optional — Tier 3 (PaddleOCR, heavier install)</span>
+<span class="cmd">pip3 install</span> paddlepaddle paddleocr</pre>
+
+<h3>LLM API Key</h3>
+<p>You need an API key for the LLM service. The app supports:</p>
+<ul>
+  <li><strong>z.ai proxy</strong> (default): set <code>ZAI_API_KEY</code> and <code>ZAI_BASE_URL=https://api.z.ai/api/anthropic</code></li>
+  <li><strong>Anthropic direct</strong>: set <code>ZAI_API_KEY</code> to your Anthropic API key and <code>ZAI_BASE_URL=https://api.anthropic.com</code></li>
+</ul>
+
+<!-- ============================================ -->
+<hr>
+<h2 id="quick-start">4. Quick Start (Dev)</h2>
+
+<pre><span class="comment"># 1. Clone / copy the project</span>
+<span class="cmd">cd</span> invoice-extractor
+
+<span class="comment"># 2. Install Node.js dependencies</span>
+<span class="cmd">npm install</span>
+
+<span class="comment"># 3. Copy environment file and add your API key</span>
+<span class="cmd">cp</span> .env.example .env
+<span class="cmd">nano</span> .env   <span class="comment"># set ZAI_API_KEY=your-key-here</span>
+
+<span class="comment"># 4. Create data directory (if it doesn't exist)</span>
+<span class="cmd">mkdir -p</span> data uploads
+
+<span class="comment"># 5. Initialize the database</span>
+<span class="cmd">npx drizzle-kit push</span>
+
+<span class="comment"># 6. Start dev server</span>
+<span class="cmd">npm run dev</span>
+
+<span class="comment"># App is now at http://localhost:3000</span></pre>
+
+<!-- ============================================ -->
+<hr>
+<h2 id="env">5. Environment Variables</h2>
+
+<table>
+  <tr><th>Variable</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>ZAI_API_KEY</code></td><td><strong>Yes</strong></td><td>—</td><td>LLM API key (z.ai or Anthropic)</td></tr>
+  <tr><td><code>ZAI_BASE_URL</code></td><td>No</td><td><code>https://api.z.ai/api/anthropic</code></td><td>LLM API endpoint</td></tr>
+  <tr><td><code>ZAI_MODEL</code></td><td>No</td><td><code>glm-5</code></td><td>Default model (auto-detects working model)</td></tr>
+  <tr><td><code>DATABASE_PATH</code></td><td>No</td><td><code>./data/invoices.db</code></td><td>SQLite database file path</td></tr>
+  <tr><td><code>AUTH_ENABLED</code></td><td>No</td><td><code>false</code></td><td>Enable login (not yet implemented)</td></tr>
+  <tr><td><code>UPLOAD_DIR</code></td><td>No</td><td><code>./uploads</code></td><td>Where uploaded files are stored</td></tr>
+  <tr><td><code>MAX_FILE_SIZE_MB</code></td><td>No</td><td><code>20</code></td><td>Maximum upload size in MB</td></tr>
+  <tr><td><code>PORT</code></td><td>No</td><td><code>3000</code></td><td>Server port</td></tr>
+</table>
+
+<div class="warning"><strong>Never commit your <code>.env</code> file.</strong> It contains your API key. Use <code>.env.example</code> as a template.</div>
+
+<!-- ============================================ -->
+<hr>
+<h2 id="linux">6. Linux Server Setup</h2>
+
+<h3>Step-by-step (Ubuntu 22.04 / 24.04)</h3>
+
+<pre><span class="comment"># 1. Install Node.js 20+ (via NodeSource)</span>
+<span class="cmd">curl -fsSL</span> https://deb.nodesource.com/setup_22.x | <span class="cmd">sudo bash</span> -
+<span class="cmd">sudo apt install</span> -y nodejs
+
+<span class="comment"># 2. Install system dependencies for OCR</span>
+<span class="cmd">sudo apt install</span> -y python3 python3-pip python3-venv ghostscript tesseract-ocr
+
+<span class="comment"># 3. Install Python packages</span>
+<span class="cmd">python3 -m pip install</span> pymupdf4llm pymupdf pytesseract Pillow
+<span class="comment"># Optional: pip3 install paddlepaddle paddleocr</span>
+
+<span class="comment"># 4. Copy the project to the server</span>
+<span class="cmd">scp -r</span> invoice-extractor/ user@server:/opt/invoice-extractor
+<span class="comment"># Or: git clone your-repo /opt/invoice-extractor</span>
+
+<span class="comment"># 5. Set up the app</span>
+<span class="cmd">cd</span> /opt/invoice-extractor
+<span class="cmd">npm install</span>
+<span class="cmd">cp</span> .env.example .env
+<span class="cmd">nano</span> .env   <span class="comment"># set ZAI_API_KEY</span>
+<span class="cmd">mkdir -p</span> data uploads
+
+<span class="comment"># 6. Initialize database</span>
+<span class="cmd">npx drizzle-kit push</span>
+
+<span class="comment"># 7. Build for production</span>
+<span class="cmd">npm run build</span>
+
+<span class="comment"># 8. Test it works</span>
+<span class="cmd">npm start</span>
+<span class="comment"># Visit http://server-ip:3000</span></pre>
+
+<!-- ============================================ -->
+<hr>
+<h2 id="systemd">7. Systemd Service</h2>
+
+<p>Run the app as a background service that auto-starts on boot.</p>
+
+<pre><span class="comment"># Create the service file</span>
+<span class="cmd">sudo nano</span> /etc/systemd/system/invoice-extractor.service</pre>
+
+<p>Paste this content:</p>
+
+<pre>[Unit]
+Description=Invoice Extractor
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/invoice-extractor
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start --port 3000
+Restart=on-failure
+RestartSec=10
+Environment=NODE_ENV=production
+
+<span class="comment"># Load environment variables from .env file</span>
+EnvironmentFile=/opt/invoice-extractor/.env
+
+<span class="comment"># Security hardening</span>
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/invoice-extractor/data /opt/invoice-extractor/uploads /opt/invoice-extractor/.next
+
+[Install]
+WantedBy=multi-user.target</pre>
+
+<pre><span class="comment"># Set file ownership</span>
+<span class="cmd">sudo chown -R</span> www-data:www-data /opt/invoice-extractor
+
+<span class="comment"># Enable and start</span>
+<span class="cmd">sudo systemctl daemon-reload</span>
+<span class="cmd">sudo systemctl enable</span> invoice-extractor
+<span class="cmd">sudo systemctl start</span> invoice-extractor
+
+<span class="comment"># Check status</span>
+<span class="cmd">sudo systemctl status</span> invoice-extractor
+
+<span class="comment"># View logs</span>
+<span class="cmd">sudo journalctl -u</span> invoice-extractor -f</pre>
+
+<!-- ============================================ -->
+<hr>
+<h2 id="nginx">8. Nginx Reverse Proxy</h2>
+
+<p>Serve the app through Nginx with HTTPS (optional but recommended for production).</p>
+
+<pre><span class="cmd">sudo apt install</span> nginx
+<span class="cmd">sudo nano</span> /etc/nginx/sites-available/invoice-extractor</pre>
+
+<p>Paste this config:</p>
+
+<pre>server {
+    listen 80;
+    server_name invoices.yourdomain.com;  <span class="comment"># or your server IP</span>
+
+    client_max_body_size 25M;  <span class="comment"># match MAX_FILE_SIZE_MB + margin</span>
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+</pre>
+
+<pre><span class="comment"># Enable the site</span>
+<span class="cmd">sudo ln -s</span> /etc/nginx/sites-available/invoice-extractor /etc/nginx/sites-enabled/
+<span class="cmd">sudo nginx -t</span>
+<span class="cmd">sudo systemctl reload</span> nginx</pre>
+
+<h3>Add HTTPS (Let's Encrypt)</h3>
+
+<pre><span class="cmd">sudo apt install</span> certbot python3-certbot-nginx
+<span class="cmd">sudo certbot</span> --nginx -d invoices.yourdomain.com</pre>
+
+<!-- ============================================ -->
+<hr>
+<h2 id="database">9. Database</h2>
+
+<p>SQLite database stored at <code>./data/invoices.db</code>. No external database server needed.</p>
+
+<h3>Schema (6 tables)</h3>
+
+<table>
+  <tr><th>Table</th><th>Purpose</th></tr>
+  <tr><td><code>invoices</code></td><td>One row per uploaded document — metadata, extracted data, status</td></tr>
+  <tr><td><code>invoice_entries</code></td><td>Line items for each invoice (charge, discount, tax, total, etc.)</td></tr>
+  <tr><td><code>settings</code></td><td>App config key-value store (concurrency, worker idle timeout)</td></tr>
+  <tr><td><code>users</code></td><td>Auth accounts (schema exists, feature not yet wired)</td></tr>
+  <tr><td><code>supplier_master</code></td><td>Canonical supplier records with aliases</td></tr>
+  <tr><td><code>attrsDictionary</code></td><td>Normalized attribute key dictionary for line items</td></tr>
+</table>
+
+<h3>Invoice Status Workflow</h3>
+
+<div class="diagram">
+queued → uploading → extracting → processing → verifying → draft → approved<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↘ exception<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(any stage can → error)
+</div>
+
+<h3>Backups</h3>
+<pre><span class="comment"># Simple backup (stop the app first, or use SQLite .backup)</span>
+<span class="cmd">cp</span> data/invoices.db data/invoices.db.backup.$(date +%Y%m%d)
+
+<span class="comment"># Or use SQLite's online backup (safe while running)</span>
+<span class="cmd">sqlite3</span> data/invoices.db ".backup data/backup.db"</pre>
+
+<!-- ============================================ -->
+<hr>
+<h2 id="pipeline">10. OCR Pipeline</h2>
+
+<p>The app spawns persistent Python worker processes for OCR. Workers communicate with Node.js via stdin/stdout using newline-delimited JSON (NDJSON).</p>
+
+<h3>Pipeline Scripts</h3>
+
+<table>
+  <tr><th>Script</th><th>Tier</th><th>Purpose</th></tr>
+  <tr><td><code>scripts/pymupdf4llm_extract.py</code></td><td>1</td><td>Text-layer PDF extraction</td></tr>
+  <tr><td><code>scripts/pymupdf_worker.py</code></td><td>1</td><td>Persistent worker version of above</td></tr>
+  <tr><td><code>scripts/gs_render.py</code></td><td>—</td><td>Ghostscript: render PDF pages to images</td></tr>
+  <tr><td><code>scripts/image_to_pages.py</code></td><td>—</td><td>Convert HEIC/JPG/etc. to page images</td></tr>
+  <tr><td><code>scripts/tesseract_ocr.py</code></td><td>2</td><td>Tesseract OCR on rendered images</td></tr>
+  <tr><td><code>scripts/ocr_worker.py</code></td><td>2/3</td><td>Persistent OCR worker (Tesseract + PaddleOCR)</td></tr>
+  <tr><td><code>scripts/paddle_ocr.py</code></td><td>3</td><td>PaddleOCR PP-StructureV3</td></tr>
+</table>
+
+<h3>Settings (configurable via /settings page)</h3>
+<table>
+  <tr><th>Setting</th><th>Default</th><th>Description</th></tr>
+  <tr><td>Tier Concurrency</td><td>2</td><td>Max concurrent OCR workers (1-4)</td></tr>
+  <tr><td>Worker Idle Minutes</td><td>5</td><td>How long idle workers stay alive (1-30)</td></tr>
+</table>
+
+<!-- ============================================ -->
+<hr>
+<h2 id="project-structure">11. Project Structure</h2>
+
+<pre>invoice-extractor/
+├── src/
+│   ├── app/                    <span class="comment"># Next.js App Router</span>
+│   │   ├── page.tsx            <span class="comment"># Dashboard (3-step workflow)</span>
+│   │   ├── layout.tsx          <span class="comment"># Root layout + Nav</span>
+│   │   ├── globals.css         <span class="comment"># Tailwind CSS</span>
+│   │   ├── upload/page.tsx     <span class="comment"># Drag-and-drop upload</span>
+│   │   ├── review/             <span class="comment"># Review queue + detail</span>
+│   │   ├── invoices/           <span class="comment"># Invoice list + detail + edit</span>
+│   │   ├── settings/page.tsx   <span class="comment"># Pipeline settings</span>
+│   │   └── api/                <span class="comment"># API routes</span>
+│   │       ├── invoices/       <span class="comment"># CRUD, upload, approve, reprocess</span>
+│   │       ├── settings/       <span class="comment"># App settings</span>
+│   │       └── health/         <span class="comment"># Health check</span>
+│   ├── components/             <span class="comment"># React components</span>
+│   ├── lib/
+│   │   ├── db/                 <span class="comment"># Drizzle schema + client</span>
+│   │   ├── llm/                <span class="comment"># Anthropic SDK, prompts, tools</span>
+│   │   ├── pdf/                <span class="comment"># 3-tier OCR extraction</span>
+│   │   ├── pipeline/           <span class="comment"># Queue, workers, processing</span>
+│   │   └── storage/            <span class="comment"># File I/O utilities</span>
+│   ├── utils/                  <span class="comment"># Display name generator</span>
+│   └── types/                  <span class="comment"># TypeScript types</span>
+├── scripts/                    <span class="comment"># Python OCR pipeline scripts</span>
+├── data/                       <span class="comment"># SQLite database</span>
+├── uploads/                    <span class="comment"># Uploaded invoice files</span>
+├── public/                     <span class="comment"># Static assets</span>
+├── .env                        <span class="comment"># Environment variables (DO NOT COMMIT)</span>
+├── .env.example                <span class="comment"># Template for .env</span>
+├── package.json
+├── next.config.ts
+├── tsconfig.json
+├── drizzle.config.ts
+└── postcss.config.mjs</pre>
+
+<!-- ============================================ -->
+<hr>
+<h2 id="troubleshooting">12. Troubleshooting</h2>
+
+<table>
+  <tr><th>Problem</th><th>Solution</th></tr>
+  <tr>
+    <td>Module not found: <code>better-sqlite3</code></td>
+    <td>Run <code>npm install</code> again. On Linux, you may need build tools: <code>sudo apt install build-essential python3</code></td>
+  </tr>
+  <tr>
+    <td>Ghostscript not found</td>
+    <td><code>sudo apt install ghostscript</code> — needed for PDF-to-image rendering</td>
+  </tr>
+  <tr>
+    <td>Tesseract not found</td>
+    <td><code>sudo apt install tesseract-ocr</code></td>
+  </tr>
+  <tr>
+    <td>PaddleOCR import error</td>
+    <td>Tier 3 is optional. Install: <code>pip3 install paddlepaddle paddleocr</code></td>
+  </tr>
+  <tr>
+    <td>Database locked</td>
+    <td>Only one Next.js instance should run at a time (SQLite limitation)</td>
+  </tr>
+  <tr>
+    <td>Port already in use</td>
+    <td>Change port: <code>npm run dev -- --port 3001</code> or set <code>PORT=3001</code> in <code>.env</code></td>
+  </tr>
+  <tr>
+    <td>LLM errors / timeouts</td>
+    <td>Check <code>ZAI_API_KEY</code> and <code>ZAI_BASE_URL</code> in <code>.env</code>. The app auto-detects working models.</td>
+  </tr>
+  <tr>
+    <td>Upload fails silently</td>
+    <td>Check <code>MAX_FILE_SIZE_MB</code> in <code>.env</code> and Nginx <code>client_max_body_size</code> if behind proxy</td>
+  </tr>
+  <tr>
+    <td>CSS looks broken / unstyled</td>
+    <td>Tailwind v4 issue — delete <code>.next/</code> and restart: <code>rm -rf .next && npm run dev</code></td>
+  </tr>
+  <tr>
+    <td>Python worker crashes</td>
+    <td>Check Python version (<code>python3 --version</code>, needs 3.10+) and that pip packages are installed</td>
+  </tr>
+</table>
+
+<h3>Useful Commands</h3>
+<pre><span class="comment"># Check health</span>
+<span class="cmd">curl</span> http://localhost:3000/api/health
+
+<span class="comment"># View database</span>
+<span class="cmd">sqlite3</span> data/invoices.db "SELECT count(*) FROM invoices;"
+
+<span class="comment"># Reset database (start fresh)</span>
+<span class="cmd">rm</span> data/invoices.db
+<span class="cmd">npx drizzle-kit push</span>
+
+<span class="comment"># View service logs (if using systemd)</span>
+<span class="cmd">sudo journalctl -u</span> invoice-extractor -f --no-pager -n 50</pre>
+
+</div>
+</body>
+</html>
