@@ -6,7 +6,32 @@ import {
   groupToTsv,
   isTsvText,
   parseTsv,
+  groupEntries,
+  buildGlobalRowMap,
 } from '../EditableEntriesTable';
+import type { EntryRow, SelectionProps, SectionRowMap } from '../EditableEntriesTable';
+
+/* ------------------------------------------------------------------ */
+/*  Test helpers                                                       */
+/* ------------------------------------------------------------------ */
+
+const HEADER_FIELD_COUNT = 9;
+
+function makeSelectionProps(): SelectionProps {
+  return {
+    selection: null,
+    range: null,
+    isDragging: false,
+    handleCellMouseDown: vi.fn(),
+    clearSelection: vi.fn(),
+    selectRange: vi.fn(),
+  };
+}
+
+function makeRowMap(entries: EntryRow[]): SectionRowMap {
+  const { groups, summaryEntries } = groupEntries(entries);
+  return buildGlobalRowMap(HEADER_FIELD_COUNT, groups, summaryEntries.length);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Pure helper function tests                                        */
@@ -58,12 +83,12 @@ describe('getCellValue', () => {
 describe('groupToTsv', () => {
   it('builds TSV with header and data rows', () => {
     const columns = [{ key: 'unit', label: 'Unit' }];
-    const groupEntries = [
+    const entries = [
       { entry: { label: 'Item A', amount: 100, entry_type: 'charge', attrs: { unit: 'ea' } }, globalIndex: 0 },
       { entry: { label: 'Item B', amount: 200, entry_type: 'charge', attrs: { unit: 'kg' } }, globalIndex: 1 },
     ];
 
-    const tsv = groupToTsv(groupEntries, columns);
+    const tsv = groupToTsv(entries, columns);
     const lines = tsv.split('\n');
 
     expect(lines).toHaveLength(3);
@@ -73,11 +98,11 @@ describe('groupToTsv', () => {
   });
 
   it('handles entries with no attrs columns', () => {
-    const groupEntries = [
+    const entries = [
       { entry: { label: 'Simple', amount: 50, entry_type: 'charge' }, globalIndex: 0 },
     ];
 
-    const tsv = groupToTsv(groupEntries, []);
+    const tsv = groupToTsv(entries, []);
     const lines = tsv.split('\n');
 
     expect(lines).toHaveLength(2);
@@ -86,11 +111,11 @@ describe('groupToTsv', () => {
   });
 
   it('handles null amounts', () => {
-    const groupEntries = [
+    const entries = [
       { entry: { label: 'No amount', amount: null, entry_type: 'charge' }, globalIndex: 0 },
     ];
 
-    const tsv = groupToTsv(groupEntries, []);
+    const tsv = groupToTsv(entries, []);
     expect(tsv).toBe('Entry\tAmount\nNo amount\t');
   });
 });
@@ -136,7 +161,7 @@ describe('parseTsv', () => {
 /* ------------------------------------------------------------------ */
 
 describe('EditableEntriesTable', () => {
-  const baseEntries = [
+  const baseEntries: EntryRow[] = [
     { label: 'Widget A', amount: 100, entry_type: 'charge', attrs: { unit: 'ea', unit_amount: 2 } },
     { label: 'Widget B', amount: 200, entry_type: 'charge', attrs: { unit: 'kg', unit_amount: 5 } },
     { label: 'Subtotal', amount: 300, entry_type: 'subtotal' },
@@ -145,7 +170,7 @@ describe('EditableEntriesTable', () => {
   it('renders entries in group tables', () => {
     const onChange = vi.fn();
     const { getByDisplayValue } = render(
-      <EditableEntriesTable entries={baseEntries} onChange={onChange} />
+      <EditableEntriesTable entries={baseEntries} onChange={onChange} selectionProps={makeSelectionProps()} rowMap={makeRowMap(baseEntries)} />
     );
 
     expect(getByDisplayValue('Widget A')).toBeTruthy();
@@ -155,22 +180,21 @@ describe('EditableEntriesTable', () => {
   it('renders the Copy button for each group', () => {
     const onChange = vi.fn();
     const { container } = render(
-      <EditableEntriesTable entries={baseEntries} onChange={onChange} />
+      <EditableEntriesTable entries={baseEntries} onChange={onChange} selectionProps={makeSelectionProps()} rowMap={makeRowMap(baseEntries)} />
     );
 
     const copyButtons = container.querySelectorAll('button[title="Copy table as TSV (for pasting into Excel)"]');
-    // One group = "charge", so one Copy button
     expect(copyButtons.length).toBe(1);
   });
 
   it('renders Copy button for each distinct group', () => {
-    const entries = [
+    const entries: EntryRow[] = [
       { label: 'Item A', amount: 10, entry_type: 'charge' },
       { label: 'Service X', amount: 50, entry_type: 'service' },
     ];
     const onChange = vi.fn();
     const { container } = render(
-      <EditableEntriesTable entries={entries} onChange={onChange} />
+      <EditableEntriesTable entries={entries} onChange={onChange} selectionProps={makeSelectionProps()} rowMap={makeRowMap(entries)} />
     );
 
     const copyButtons = container.querySelectorAll('button[title="Copy table as TSV (for pasting into Excel)"]');
@@ -180,34 +204,33 @@ describe('EditableEntriesTable', () => {
   it('renders summary entries separately', () => {
     const onChange = vi.fn();
     const { container } = render(
-      <EditableEntriesTable entries={baseEntries} onChange={onChange} />
+      <EditableEntriesTable entries={baseEntries} onChange={onChange} selectionProps={makeSelectionProps()} rowMap={makeRowMap(baseEntries)} />
     );
 
-    // The summary section is after the group tables, in a border-t-2 div
     const summarySection = container.querySelector('.border-t-2');
     expect(summarySection).toBeTruthy();
-    // The subtotal label input should exist within the summary section
     const labelInputs = summarySection!.querySelectorAll('input[placeholder="Label"]');
     expect(labelInputs.length).toBe(1);
     expect((labelInputs[0] as HTMLInputElement).value).toBe('Subtotal');
   });
 
   it('shows "No entries" when entries array is empty', () => {
+    const entries: EntryRow[] = [];
     const onChange = vi.fn();
     const { getByText } = render(
-      <EditableEntriesTable entries={[]} onChange={onChange} />
+      <EditableEntriesTable entries={entries} onChange={onChange} selectionProps={makeSelectionProps()} rowMap={makeRowMap(entries)} />
     );
 
     expect(getByText('No entries')).toBeTruthy();
   });
 
   it('renders data-row and data-col attributes on inputs', () => {
-    const entries = [
+    const entries: EntryRow[] = [
       { label: 'Item A', amount: 10, entry_type: 'charge', attrs: { unit: 'ea' } },
     ];
     const onChange = vi.fn();
     const { container } = render(
-      <EditableEntriesTable entries={entries} onChange={onChange} />
+      <EditableEntriesTable entries={entries} onChange={onChange} selectionProps={makeSelectionProps()} rowMap={makeRowMap(entries)} />
     );
 
     const inputs = container.querySelectorAll('input[data-row][data-col]');
@@ -220,12 +243,12 @@ describe('EditableEntriesTable', () => {
   });
 
   it('highlights active cell on focus', () => {
-    const entries = [
+    const entries: EntryRow[] = [
       { label: 'Item A', amount: 10, entry_type: 'charge' },
     ];
     const onChange = vi.fn();
     const { container } = render(
-      <EditableEntriesTable entries={entries} onChange={onChange} />
+      <EditableEntriesTable entries={entries} onChange={onChange} selectionProps={makeSelectionProps()} rowMap={makeRowMap(entries)} />
     );
 
     const labelInput = container.querySelector('input[data-row="0"][data-col="0"]') as HTMLInputElement;
@@ -237,12 +260,12 @@ describe('EditableEntriesTable', () => {
   });
 
   it('calls onChange when entry value is edited', () => {
-    const entries = [
+    const entries: EntryRow[] = [
       { label: 'Item A', amount: 10, entry_type: 'charge' },
     ];
     const onChange = vi.fn();
     const { container } = render(
-      <EditableEntriesTable entries={entries} onChange={onChange} />
+      <EditableEntriesTable entries={entries} onChange={onChange} selectionProps={makeSelectionProps()} rowMap={makeRowMap(entries)} />
     );
 
     const input = container.querySelector('input[data-row="0"][data-col="0"]') as HTMLInputElement;

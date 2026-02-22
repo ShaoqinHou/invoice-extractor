@@ -1,6 +1,13 @@
 import { useState, useRef, useCallback } from "react";
+import {
+  isCellInRange,
+  isMultiCellSelection,
+  DATA_ATTR_ROW,
+  DATA_ATTR_COL,
+} from "@web/components/patterns/cell-selection";
+import type { SelectionState, NormalizedRange } from "@web/components/patterns/cell-selection";
 
-interface EntryRow {
+export interface EntryRow {
   id?: number;
   label: string;
   amount: number | null;
@@ -8,9 +15,23 @@ interface EntryRow {
   attrs?: Record<string, unknown> | null;
 }
 
+/** Selection props passed down from the parent (ReviewForm) */
+export interface SelectionProps {
+  selection: SelectionState | null;
+  range: NormalizedRange | null;
+  isDragging: boolean;
+  handleCellMouseDown: (row: number, col: number, shiftKey: boolean) => void;
+  clearSelection: () => void;
+  selectRange: (startRow: number, startCol: number, endRow: number, endCol: number) => void;
+}
+
 interface EditableEntriesTableProps {
   entries: EntryRow[];
   onChange: (entries: EntryRow[]) => void;
+  /** Selection props from parent ReviewForm */
+  selectionProps: SelectionProps;
+  /** Global row map */
+  rowMap: SectionRowMap;
 }
 
 const SUMMARY_TYPES = new Set(["subtotal", "total", "due", "tax", "discount", "adjustment"]);
@@ -85,13 +106,13 @@ function buildAttrColumns(entries: { entry: EntryRow }[]): AttrColumn[] {
   return columns;
 }
 
-interface EntryGroup {
+export interface EntryGroup {
   type: string;
   entries: { entry: EntryRow; globalIndex: number }[];
   columns: AttrColumn[];
 }
 
-function groupEntries(entries: EntryRow[]): { groups: EntryGroup[]; summaryEntries: { entry: EntryRow; globalIndex: number }[] } {
+export function groupEntries(entries: EntryRow[]): { groups: EntryGroup[]; summaryEntries: { entry: EntryRow; globalIndex: number }[] } {
   const groupMap = new Map<string, { entry: EntryRow; globalIndex: number }[]>();
   const order: string[] = [];
   const summaryEntries: { entry: EntryRow; globalIndex: number }[] = [];
@@ -126,6 +147,184 @@ function formatAttrValue(value: unknown): string {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Global row map (for cross-section selection)                      */
+/* ------------------------------------------------------------------ */
+
+export interface SectionRowMap {
+  headerStart: number;     // always 0
+  headerCount: number;     // number of header fields
+  groups: {
+    type: string;
+    headerRow: number;     // global row of the group's column header
+    dataStart: number;     // global row of first data entry
+    dataCount: number;     // number of data entries
+    colCount: number;      // 2 + attrColumns.length
+  }[];
+  summaryStart: number;
+  summaryCount: number;
+  totalRows: number;
+}
+
+/** Build a global row map from the current data layout. */
+export function buildGlobalRowMap(
+  headerFieldCount: number,
+  groups: EntryGroup[],
+  summaryCount: number,
+): SectionRowMap {
+  let cursor = headerFieldCount;
+
+  const groupMaps = groups.map(g => {
+    const headerRow = cursor;
+    const dataStart = cursor + 1;
+    const dataCount = g.entries.length;
+    const colCount = 2 + g.columns.length;
+    cursor = dataStart + dataCount;
+    return { type: g.type, headerRow, dataStart, dataCount, colCount };
+  });
+
+  const summaryStart = cursor;
+
+  return {
+    headerStart: 0,
+    headerCount: headerFieldCount,
+    groups: groupMaps,
+    summaryStart,
+    summaryCount,
+    totalRows: cursor + summaryCount,
+  };
+}
+
+/** Header field definitions for the selectable header table */
+export interface HeaderFieldDef {
+  label: string;
+  value: string;
+}
+
+/**
+ * Build a function that maps (globalRow, col) → display string,
+ * suitable for the rangeToCopyText callback across all sections.
+ */
+export function buildGlobalCellValueGetter(
+  map: SectionRowMap,
+  headerFields: HeaderFieldDef[],
+  groups: EntryGroup[],
+  summaryEntries: { entry: EntryRow; globalIndex: number }[],
+): (row: number, col: number) => string {
+  return (row: number, col: number): string => {
+    // Header fields section (2 cols: label, value)
+    if (row < map.headerCount) {
+      const field = headerFields[row];
+      if (!field) return "";
+      if (col === 0) return field.label;
+      if (col === 1) return field.value;
+      return "";
+    }
+
+    // Group sections
+    for (let gi = 0; gi < map.groups.length; gi++) {
+      const gm = map.groups[gi];
+      const group = groups[gi];
+      if (row === gm.headerRow) {
+        // Group column header row
+        return getHeaderLabel(col, group.columns);
+      }
+      if (row >= gm.dataStart && row < gm.dataStart + gm.dataCount) {
+        const localRow = row - gm.dataStart;
+        const entry = group.entries[localRow];
+        if (!entry) return "";
+        return getCellValue(entry.entry, col, group.columns);
+      }
+    }
+
+    // Summary section (3 cols: label, type, amount)
+    if (row >= map.summaryStart && row < map.summaryStart + map.summaryCount) {
+      const si = row - map.summaryStart;
+      const se = summaryEntries[si];
+      if (!se) return "";
+      if (col === 0) return se.entry.label;
+      if (col === 1) return se.entry.entry_type ?? "";
+      if (col === 2) return se.entry.amount != null ? String(se.entry.amount) : "";
+      return "";
+    }
+
+    return "";
+  };
+}
+
+/**
+ * Get the column count for the section that a given global row belongs to.
+ */
+export function getColCountForRow(row: number, map: SectionRowMap): number {
+  if (row < map.headerCount) return 2;
+  for (const gm of map.groups) {
+    if (row === gm.headerRow || (row >= gm.dataStart && row < gm.dataStart + gm.dataCount)) {
+      return gm.colCount;
+    }
+  }
+  if (row >= map.summaryStart && row < map.summaryStart + map.summaryCount) return 3;
+  return 1;
+}
+
+/**
+ * Compute an effective selection range that accounts for cross-section column alignment.
+ *
+ * All section tables are full-width, so the rightmost column of a narrow section
+ * is visually aligned with the rightmost column of a wider section. When the selection's
+ * endCol reaches the right edge of the section containing endRow, we expand endCol to
+ * MAX_SAFE_INTEGER so all columns of wider sections are also selected.
+ *
+ * This is safe because `isCellInRange` is only called for cells that actually exist in
+ * the DOM — nonexistent columns beyond a section's max are never checked.
+ */
+export function computeEffectiveRange(
+  range: NormalizedRange,
+  rowMap: SectionRowMap,
+): NormalizedRange {
+  const endSectionMaxCol = getColCountForRow(range.endRow, rowMap) - 1;
+  const atRightEdge = range.endCol >= endSectionMaxCol;
+
+  if (!atRightEdge) return range;
+
+  return {
+    startRow: range.startRow,
+    startCol: range.startCol,
+    endRow: range.endRow,
+    endCol: Number.MAX_SAFE_INTEGER,
+  };
+}
+
+/**
+ * Build a TSV copy string for a cross-section selection.
+ * Unlike generic `rangeToCopyText`, this clamps each row's column range
+ * to the section's actual column count (so we don't emit huge trailing tabs).
+ */
+export function crossSectionCopyText(
+  range: NormalizedRange,
+  rowMap: SectionRowMap,
+  getCellValue: (row: number, col: number) => string,
+): string {
+  const endSectionMaxCol = getColCountForRow(range.endRow, rowMap) - 1;
+  const expandRight = range.endCol >= endSectionMaxCol;
+
+  const lines: string[] = [];
+  for (let r = range.startRow; r <= range.endRow; r++) {
+    const rowMaxCol = getColCountForRow(r, rowMap) - 1;
+    const effectiveEndCol = expandRight ? rowMaxCol : Math.min(range.endCol, rowMaxCol);
+    const effectiveStartCol = Math.min(range.startCol, rowMaxCol);
+    if (effectiveStartCol > effectiveEndCol) {
+      lines.push("");
+      continue;
+    }
+    const cells: string[] = [];
+    for (let c = effectiveStartCol; c <= effectiveEndCol; c++) {
+      cells.push(getCellValue(r, c));
+    }
+    lines.push(cells.join("\t"));
+  }
+  return lines.join("\n");
+}
+
+/* ------------------------------------------------------------------ */
 /*  Cell value helpers (exported for testing)                         */
 /* ------------------------------------------------------------------ */
 
@@ -143,6 +342,14 @@ export function getCellValue(
   const attrCol = columns[col - 2];
   if (!attrCol) return "";
   return formatAttrValue(entry.attrs?.[attrCol.key]);
+}
+
+/** Header labels for columns: col 0 = "Entry", col 1 = "Amount", col 2+ = attr label */
+function getHeaderLabel(col: number, columns: AttrColumn[]): string {
+  if (col === 0) return "Entry";
+  if (col === 1) return "Amount";
+  const attrCol = columns[col - 2];
+  return attrCol ? attrCol.label : "";
 }
 
 /**
@@ -180,11 +387,15 @@ export function parseTsv(text: string): string[][] {
   return text.split(/\r?\n/).filter(line => line.length > 0).map(line => line.split("\t"));
 }
 
-export function EditableEntriesTable({ entries, onChange }: EditableEntriesTableProps) {
+export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap }: EditableEntriesTableProps) {
   const [newGroupName, setNewGroupName] = useState("");
   const [showAddGroup, setShowAddGroup] = useState(false);
+  const [copyAllFeedback, setCopyAllFeedback] = useState(false);
 
   const { groups, summaryEntries } = groupEntries(entries);
+
+  const { selection, range, isDragging, handleCellMouseDown, selectRange } = selectionProps;
+  const hasMultiSelection = selection ? isMultiCellSelection(selection) : false;
 
   function updateEntry(globalIndex: number, field: keyof EntryRow, value: string) {
     const updated = [...entries];
@@ -253,6 +464,32 @@ export function EditableEntriesTable({ entries, onChange }: EditableEntriesTable
     onChange(entries.map(e => (e.entry_type ?? "other") === oldType ? { ...e, entry_type: normalized } : e));
   }
 
+  /** Copy all groups as TSV, separated by blank lines */
+  function handleCopyAll() {
+    const tsvParts = groups.map(g => groupToTsv(g.entries, g.columns));
+    const tsv = tsvParts.join("\n\n");
+    navigator.clipboard.writeText(tsv).then(() => {
+      setCopyAllFeedback(true);
+      setTimeout(() => setCopyAllFeedback(false), 1500);
+    });
+  }
+
+  /** Handle mousedown on a cell: manage shift+click vs normal click */
+  const handleCellMouseDownEvent = useCallback(
+    (e: React.MouseEvent, row: number, col: number) => {
+      if (e.shiftKey) {
+        e.preventDefault();
+        handleCellMouseDown(row, col, true);
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+      } else {
+        handleCellMouseDown(row, col, false);
+      }
+    },
+    [handleCellMouseDown],
+  );
+
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
@@ -273,6 +510,15 @@ export function EditableEntriesTable({ entries, onChange }: EditableEntriesTable
             </div>
           ) : (
             <>
+              <button
+                type="button"
+                onClick={handleCopyAll}
+                className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-100"
+                title="Copy all groups as TSV"
+              >
+                <ClipboardIcon />
+                {copyAllFeedback ? "Copied!" : "Copy All"}
+              </button>
               <button type="button" onClick={() => setShowAddGroup(true)} className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-100">+ Group</button>
               <button type="button" onClick={addSummaryEntry} className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-100">+ Summary</button>
             </>
@@ -284,52 +530,121 @@ export function EditableEntriesTable({ entries, onChange }: EditableEntriesTable
         <p className="text-xs text-gray-400">No entries</p>
       ) : (
         <div className="space-y-3">
-          {groups.map(group => (
-            <GroupSection
-              key={group.type}
-              group={group}
-              allEntries={entries}
-              onUpdate={updateEntry}
-              onUpdateAttr={updateAttr}
-              onRemove={removeEntry}
-              onAdd={() => addEntryToGroup(group.type)}
-              onRename={(newName) => renameGroup(group.type, newName)}
-              onBulkChange={onChange}
-            />
-          ))}
+          {groups.map((group, gi) => {
+            const gm = rowMap.groups[gi];
+            return (
+              <GroupSection
+                key={group.type}
+                group={group}
+                allEntries={entries}
+                onUpdate={updateEntry}
+                onUpdateAttr={updateAttr}
+                onRemove={removeEntry}
+                onAdd={() => addEntryToGroup(group.type)}
+                onRename={(newName) => renameGroup(group.type, newName)}
+                onBulkChange={onChange}
+                selection={selection}
+                range={range}
+                isDragging={isDragging}
+                hasMultiSelection={hasMultiSelection}
+                handleCellMouseDownEvent={handleCellMouseDownEvent}
+                selectRange={selectRange}
+                globalHeaderRow={gm?.headerRow ?? 0}
+                globalDataStart={gm?.dataStart ?? 0}
+              />
+            );
+          })}
 
           {summaryEntries.length > 0 && (
             <div className="border-t-2 border-gray-300 pt-2">
-              <div className="space-y-1">
-                {summaryEntries.map(({ entry, globalIndex }) => (
-                  <div key={globalIndex} className="flex items-center gap-2">
-                    <input
-                      value={entry.label}
-                      onChange={e => updateEntry(globalIndex, "label", e.target.value)}
-                      placeholder="Label"
-                      className="flex-1 rounded border border-gray-300 bg-white px-2 py-1 text-sm font-medium"
-                    />
-                    <select
-                      value={entry.entry_type ?? "subtotal"}
-                      onChange={e => updateEntry(globalIndex, "entry_type", e.target.value)}
-                      className="w-20 rounded border border-gray-300 bg-white px-1 py-1 text-xs"
-                    >
-                      {ENTRY_TYPES.filter(t => SUMMARY_TYPES.has(t)).map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={entry.amount ?? ""}
-                      onChange={e => updateEntry(globalIndex, "amount", e.target.value)}
-                      placeholder="Amount"
-                      className="w-24 rounded border border-gray-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums"
-                    />
-                    <button type="button" onClick={() => removeEntry(globalIndex)} className="text-red-400 hover:text-red-600 text-xs px-1">
-                      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <table className="w-full text-left text-sm" style={{ borderCollapse: "collapse" }}>
+                <tbody>
+                  {summaryEntries.map(({ entry, globalIndex }, si) => {
+                    const globalRow = rowMap.summaryStart + si;
+                    return (
+                      <tr key={globalIndex}>
+                        {/* Label (col 0) */}
+                        {(() => {
+                          const inRange = range ? isCellInRange(globalRow, 0, range) : false;
+                          const isAnchor = hasMultiSelection && selection?.anchor.row === globalRow && selection?.anchor.col === 0;
+                          return (
+                            <td
+                              {...{ [DATA_ATTR_ROW]: globalRow, [DATA_ATTR_COL]: 0 }}
+                              className={`border p-0 ${
+                                isAnchor ? anchorCellClass
+                                  : inRange && hasMultiSelection ? selectedCellClass
+                                  : "border-gray-200"
+                              }`}
+                              onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, 0)}
+                            >
+                              <input
+                                value={entry.label}
+                                onChange={e => updateEntry(globalIndex, "label", e.target.value)}
+                                placeholder="Label"
+                                className={`${isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : cellInputClass} font-medium`}
+                              />
+                            </td>
+                          );
+                        })()}
+                        {/* Type dropdown (col 1) */}
+                        {(() => {
+                          const inRange = range ? isCellInRange(globalRow, 1, range) : false;
+                          const isAnchor = hasMultiSelection && selection?.anchor.row === globalRow && selection?.anchor.col === 1;
+                          return (
+                            <td
+                              {...{ [DATA_ATTR_ROW]: globalRow, [DATA_ATTR_COL]: 1 }}
+                              className={`border p-0 w-20 ${
+                                isAnchor ? anchorCellClass
+                                  : inRange && hasMultiSelection ? selectedCellClass
+                                  : "border-gray-200"
+                              }`}
+                              onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, 1)}
+                            >
+                              <select
+                                value={entry.entry_type ?? "subtotal"}
+                                onChange={e => updateEntry(globalIndex, "entry_type", e.target.value)}
+                                className={`${isAnchor ? "bg-transparent" : inRange && hasMultiSelection ? "bg-transparent" : "bg-white"} px-1 py-1 text-xs w-full outline-none border-0`}
+                              >
+                                {ENTRY_TYPES.filter(t => SUMMARY_TYPES.has(t)).map(t => <option key={t} value={t}>{t}</option>)}
+                              </select>
+                            </td>
+                          );
+                        })()}
+                        {/* Amount (col 2) */}
+                        {(() => {
+                          const inRange = range ? isCellInRange(globalRow, 2, range) : false;
+                          const isAnchor = hasMultiSelection && selection?.anchor.row === globalRow && selection?.anchor.col === 2;
+                          return (
+                            <td
+                              {...{ [DATA_ATTR_ROW]: globalRow, [DATA_ATTR_COL]: 2 }}
+                              className={`border p-0 w-24 ${
+                                isAnchor ? anchorCellClass
+                                  : inRange && hasMultiSelection ? selectedCellClass
+                                  : "border-gray-200"
+                              }`}
+                              onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, 2)}
+                            >
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={entry.amount ?? ""}
+                                onChange={e => updateEntry(globalIndex, "amount", e.target.value)}
+                                placeholder="Amount"
+                                className={`${isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : cellInputClass} text-right font-medium tabular-nums`}
+                              />
+                            </td>
+                          );
+                        })()}
+                        <td className="border border-gray-200 px-1 py-1 text-center w-8">
+                          <button type="button" onClick={() => removeEntry(globalIndex)} className="text-red-400 hover:text-red-600 text-xs px-1">
+                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -341,6 +656,15 @@ export function EditableEntriesTable({ entries, onChange }: EditableEntriesTable
 /** Cell input style */
 const cellInputClass = "border border-gray-200 bg-white px-2 py-1 text-sm w-full outline-none focus:ring-1 focus:ring-blue-300";
 const activeCellInputClass = "border border-blue-400 bg-blue-50/40 px-2 py-1 text-sm w-full outline-none ring-1 ring-blue-300";
+/** Input style inside a selected cell — transparent bg so td highlight shows through, border hidden so td ring is the visible border. */
+const selectedCellInputClass = "border border-transparent bg-transparent px-2 py-1 text-sm w-full outline-none";
+const anchorCellInputClass = "border border-transparent bg-transparent px-2 py-1 text-sm w-full outline-none";
+
+/** Selection cell styles — use ring-inset (box-shadow) because border-collapse
+ *  swallows border-color changes on shared edges between cells. */
+const selectedCellClass = "bg-blue-100 ring-1 ring-inset ring-blue-400";
+const anchorCellClass = "bg-blue-200 ring-2 ring-inset ring-blue-500";
+const selectedHeaderClass = "!bg-blue-100 ring-1 ring-inset ring-blue-400";
 
 /** Clipboard icon (small, for Copy Table button) */
 function ClipboardIcon() {
@@ -351,7 +675,8 @@ function ClipboardIcon() {
   );
 }
 
-function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onAdd, onRename, onBulkChange }: {
+function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onAdd, onRename, onBulkChange,
+  selection, range, isDragging, hasMultiSelection, handleCellMouseDownEvent, selectRange, globalHeaderRow, globalDataStart }: {
   group: EntryGroup;
   allEntries: EntryRow[];
   onUpdate: (globalIndex: number, field: keyof EntryRow, value: string) => void;
@@ -360,12 +685,25 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
   onAdd: () => void;
   onRename: (newName: string) => void;
   onBulkChange: (entries: EntryRow[]) => void;
+  // Selection props from parent
+  selection: SelectionState | null;
+  range: NormalizedRange | null;
+  isDragging: boolean;
+  hasMultiSelection: boolean;
+  handleCellMouseDownEvent: (e: React.MouseEvent, row: number, col: number) => void;
+  selectRange: (startRow: number, startCol: number, endRow: number, endCol: number) => void;
+  globalHeaderRow: number;
+  globalDataStart: number;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(group.type);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [activeCell, setActiveCell] = useState<{ row: number; col: number } | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
+
+  const totalCols = 2 + group.columns.length;
+  const lastCol = totalCols - 1;
+  const lastGlobalDataRow = globalDataStart + group.entries.length - 1;
 
   /** Copy the entire group table as TSV to clipboard */
   const handleCopyTable = useCallback(() => {
@@ -375,6 +713,11 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
       setTimeout(() => setCopyFeedback(false), 1500);
     });
   }, [group.entries, group.columns]);
+
+  /** Select entire group (header + all data rows) using global coords */
+  const handleSelectGroup = useCallback(() => {
+    selectRange(globalHeaderRow, 0, lastGlobalDataRow, lastCol);
+  }, [selectRange, globalHeaderRow, lastGlobalDataRow, lastCol]);
 
   /**
    * Apply a single cell value update to the entries array.
@@ -414,7 +757,6 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
       const text = e.clipboardData.getData("text/plain");
       if (!isTsvText(text) || !activeCell) return;
 
-      // Prevent default paste into the input
       e.preventDefault();
 
       const rows = parseTsv(text);
@@ -435,7 +777,7 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
     [activeCell, allEntries, group.entries.length, setCellValue, onBulkChange],
   );
 
-  /** Track which cell is active when an input inside the table gains focus */
+  /** Track which cell is active when an input inside the table gains focus (local rows for paste) */
   const handleFocusCapture = useCallback((e: React.FocusEvent<HTMLTableElement>) => {
     const input = e.target as HTMLElement;
     if (input.tagName !== "INPUT") return;
@@ -445,26 +787,6 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
       setActiveCell({ row: parseInt(row, 10), col: parseInt(col, 10) });
     }
   }, []);
-
-  /** Keyboard handler on the table for Ctrl+C (copy current cell or selected text) */
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTableElement>) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "c") {
-        // If there is a text selection inside an input, let default copy happen
-        const sel = window.getSelection();
-        if (sel && sel.toString().length > 0) return;
-
-        // Otherwise, copy the active cell value
-        if (!activeCell) return;
-        const entry = group.entries[activeCell.row];
-        if (!entry) return;
-        const value = getCellValue(entry.entry, activeCell.col, group.columns);
-        navigator.clipboard.writeText(value);
-        e.preventDefault();
-      }
-    },
-    [activeCell, group.entries, group.columns],
-  );
 
   return (
     <div className="rounded-lg border border-gray-100">
@@ -482,9 +804,15 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
             />
           ) : (
             <button
-              onClick={() => setEditingName(true)}
+              onClick={(e) => {
+                if (e.detail === 2) {
+                  setEditingName(true);
+                } else {
+                  handleSelectGroup();
+                }
+              }}
               className="text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-gray-600"
-              title="Click to rename group"
+              title="Click to select group, double-click to rename"
             >
               {titleCase(group.type)}
             </button>
@@ -508,60 +836,123 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
       <div className="overflow-x-auto">
         <table
           ref={tableRef}
-          className="w-full text-left text-sm"
+          className={`w-full text-left text-sm ${isDragging ? "select-none [&_input]:pointer-events-none" : ""}`}
           style={{ borderCollapse: "collapse" }}
           onFocusCapture={handleFocusCapture}
-          onKeyDown={handleKeyDown}
           onPaste={handlePaste}
+          tabIndex={-1}
         >
           <thead>
             <tr className="bg-gray-50 text-xs text-gray-500">
-              <th className="border border-gray-200 px-2 py-1 font-medium">Entry</th>
-              <th className="border border-gray-200 px-2 py-1 font-medium text-right w-24">Amount</th>
-              {group.columns.map(col => (
-                <th key={col.key} className="border border-gray-200 px-2 py-1 font-medium">{col.label}</th>
-              ))}
+              {(["Entry", "Amount", ...group.columns.map(c => c.label)] as string[]).map((label, colIdx) => {
+                const inRange = range ? isCellInRange(globalHeaderRow, colIdx, range) : false;
+                const isAnchor = hasMultiSelection && selection?.anchor.row === globalHeaderRow && selection?.anchor.col === colIdx;
+                return (
+                  <th
+                    key={colIdx}
+                    {...{ [DATA_ATTR_ROW]: globalHeaderRow, [DATA_ATTR_COL]: colIdx }}
+                    className={`border px-2 py-1 font-medium ${colIdx === 1 ? "text-right w-24" : ""} ${
+                      isAnchor ? anchorCellClass
+                        : inRange ? selectedHeaderClass
+                        : "border-gray-200"
+                    }`}
+                    onMouseDown={(e) => handleCellMouseDownEvent(e, globalHeaderRow, colIdx)}
+                  >
+                    {label}
+                  </th>
+                );
+              })}
               <th className="border border-gray-200 px-1 py-1 w-8" />
             </tr>
           </thead>
           <tbody>
             {group.entries.map(({ entry, globalIndex }, localRow) => {
               const attrs = entry.attrs ?? {};
+              const globalRow = globalDataStart + localRow;
               const isActiveRow = activeCell?.row === localRow;
               return (
-                <tr key={globalIndex} className="hover:bg-blue-50/30">
-                  <td className={`border p-0 ${isActiveRow && activeCell?.col === 0 ? "border-blue-400" : "border-gray-200"}`}>
-                    <input
-                      data-row={localRow}
-                      data-col={0}
-                      value={entry.label}
-                      onChange={e => onUpdate(globalIndex, "label", e.target.value)}
-                      placeholder="Label"
-                      className={isActiveRow && activeCell?.col === 0 ? activeCellInputClass : cellInputClass}
-                    />
-                  </td>
-                  <td className={`border p-0 ${isActiveRow && activeCell?.col === 1 ? "border-blue-400" : "border-gray-200"}`}>
-                    <input
-                      data-row={localRow}
-                      data-col={1}
-                      type="number"
-                      step="0.01"
-                      value={entry.amount ?? ""}
-                      onChange={e => onUpdate(globalIndex, "amount", e.target.value)}
-                      className={`${isActiveRow && activeCell?.col === 1 ? activeCellInputClass : cellInputClass} text-right tabular-nums`}
-                    />
-                  </td>
-                  {group.columns.map((col, colIdx) => {
-                    const cIdx = colIdx + 2;
-                    const isActive = isActiveRow && activeCell?.col === cIdx;
+                <tr key={globalIndex} className={hasMultiSelection ? "" : "hover:bg-blue-50/30"}>
+                  {/* Label cell (col 0) */}
+                  {(() => {
+                    const colIdx = 0;
+                    const inRange = range ? isCellInRange(globalRow, colIdx, range) : false;
+                    const isAnchor = hasMultiSelection && selection?.anchor.row === globalRow && selection?.anchor.col === colIdx;
+                    const isActive = !hasMultiSelection && isActiveRow && activeCell?.col === colIdx;
                     return (
-                      <td key={col.key} className={`border p-0 ${isActive ? "border-blue-400" : "border-gray-200"}`}>
+                      <td
+                        {...{ [DATA_ATTR_ROW]: globalRow, [DATA_ATTR_COL]: colIdx }}
+                        className={`border p-0 ${
+                          isAnchor ? anchorCellClass
+                            : inRange && hasMultiSelection ? selectedCellClass
+                            : isActive ? "border-blue-400"
+                            : "border-gray-200"
+                        }`}
+                        onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, colIdx)}
+                      >
                         <input
                           data-row={localRow}
-                          data-col={cIdx}
+                          data-col={colIdx}
+                          value={entry.label}
+                          onChange={e => onUpdate(globalIndex, "label", e.target.value)}
+                          placeholder="Label"
+                          className={isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : isActive ? activeCellInputClass : cellInputClass}
+                        />
+                      </td>
+                    );
+                  })()}
+                  {/* Amount cell (col 1) */}
+                  {(() => {
+                    const colIdx = 1;
+                    const inRange = range ? isCellInRange(globalRow, colIdx, range) : false;
+                    const isAnchor = hasMultiSelection && selection?.anchor.row === globalRow && selection?.anchor.col === colIdx;
+                    const isActive = !hasMultiSelection && isActiveRow && activeCell?.col === colIdx;
+                    return (
+                      <td
+                        {...{ [DATA_ATTR_ROW]: globalRow, [DATA_ATTR_COL]: colIdx }}
+                        className={`border p-0 ${
+                          isAnchor ? anchorCellClass
+                            : inRange && hasMultiSelection ? selectedCellClass
+                            : isActive ? "border-blue-400"
+                            : "border-gray-200"
+                        }`}
+                        onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, colIdx)}
+                      >
+                        <input
+                          data-row={localRow}
+                          data-col={colIdx}
+                          type="number"
+                          step="0.01"
+                          value={entry.amount ?? ""}
+                          onChange={e => onUpdate(globalIndex, "amount", e.target.value)}
+                          className={`${isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : isActive ? activeCellInputClass : cellInputClass} text-right tabular-nums`}
+                        />
+                      </td>
+                    );
+                  })()}
+                  {/* Attr cells (col 2+) */}
+                  {group.columns.map((col, ci) => {
+                    const colIdx = ci + 2;
+                    const inRange = range ? isCellInRange(globalRow, colIdx, range) : false;
+                    const isAnchor = hasMultiSelection && selection?.anchor.row === globalRow && selection?.anchor.col === colIdx;
+                    const isActive = !hasMultiSelection && isActiveRow && activeCell?.col === colIdx;
+                    return (
+                      <td
+                        key={col.key}
+                        {...{ [DATA_ATTR_ROW]: globalRow, [DATA_ATTR_COL]: colIdx }}
+                        className={`border p-0 ${
+                          isAnchor ? anchorCellClass
+                            : inRange && hasMultiSelection ? selectedCellClass
+                            : isActive ? "border-blue-400"
+                            : "border-gray-200"
+                        }`}
+                        onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, colIdx)}
+                      >
+                        <input
+                          data-row={localRow}
+                          data-col={colIdx}
                           value={formatAttrValue(attrs[col.key])}
                           onChange={e => onUpdateAttr(globalIndex, col.key, e.target.value)}
-                          className={isActive ? activeCellInputClass : cellInputClass}
+                          className={isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : isActive ? activeCellInputClass : cellInputClass}
                         />
                       </td>
                     );
