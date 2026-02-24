@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { API_BASE } from '@web/lib/api';
 import { authKeys } from './keys';
 
 interface AuthUser {
@@ -28,7 +29,7 @@ export function useAuthStatus() {
   return useQuery({
     queryKey: authKeys.status,
     queryFn: async (): Promise<AuthStatusResponse> => {
-      const res = await fetch('/api/auth/status');
+      const res = await fetch(`${API_BASE}/auth/status`);
       return res.json();
     },
     staleTime: Infinity,
@@ -39,7 +40,7 @@ export function useMe() {
   return useQuery({
     queryKey: authKeys.me,
     queryFn: async (): Promise<MeResponse> => {
-      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      const res = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
       if (res.status === 401) {
         throw new Error('UNAUTHORIZED');
       }
@@ -56,7 +57,7 @@ export function useLogin() {
 
   return useMutation({
     mutationFn: async (data: { email: string; password: string }) => {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -84,7 +85,7 @@ export function useRegister() {
       display_name?: string;
       password: string;
     }) => {
-      const res = await fetch('/api/auth/register', {
+      const res = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -107,7 +108,7 @@ export function useLogout() {
 
   return useMutation({
     mutationFn: async () => {
-      await fetch('/api/auth/logout', {
+      await fetch(`${API_BASE}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -123,7 +124,7 @@ export function useInviteValidation(token: string | null) {
   return useQuery({
     queryKey: authKeys.invite(token || ''),
     queryFn: async () => {
-      const res = await fetch(`/api/auth/invite/${token}`);
+      const res = await fetch(`${API_BASE}/auth/invite/${token}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || 'Invalid invite');
