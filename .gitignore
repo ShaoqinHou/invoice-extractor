@@ -14,5 +14,6 @@ uploads/
 __pycache__/
 *.pyc
 *.tsbuildinfo
-.claude/
+.claude/memory/
+.claude/settings.json
 e2e-*.png
