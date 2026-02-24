@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const invoices = sqliteTable('invoices', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -38,6 +38,9 @@ export const invoices = sqliteTable('invoices', {
   file_hash: text('file_hash').unique(),
   ocr_tier: integer('ocr_tier'),
   approved_date: text('approved_date'),
+
+  // Multi-tenant: nullable for backwards compatibility
+  company_id: integer('company_id'),
 });
 
 export const invoiceEntries = sqliteTable('invoice_entries', {
@@ -56,10 +59,60 @@ export const settings = sqliteTable('settings', {
   value: text('value', { mode: 'json' }),
 });
 
+// ── Auth tables ─────────────────────────────────────────────────────────
+
+export const ROLES = ['admin', 'manager', 'user', 'viewer'] as const;
+export type Role = typeof ROLES[number];
+
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  username: text('username').unique().notNull(),
+  email: text('email').unique().notNull(),
+  display_name: text('display_name'),
   password_hash: text('password_hash').notNull(),
+  role: text('role').default('user').notNull(), // global role: admin | manager | user | viewer
+  is_active: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
+  created_at: text('created_at').default("datetime('now')"),
+  updated_at: text('updated_at').default("datetime('now')"),
+});
+
+export const companies = sqliteTable('companies', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  slug: text('slug').unique(),
+  is_active: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
+  created_at: text('created_at').default("datetime('now')"),
+  updated_at: text('updated_at').default("datetime('now')"),
+});
+
+export const userCompanies = sqliteTable('user_companies', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  company_id: integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  role: text('role').default('user').notNull(), // per-company role override
+  joined_at: text('joined_at').default("datetime('now')"),
+}, (table) => [
+  uniqueIndex('user_company_unique').on(table.user_id, table.company_id),
+]);
+
+export const inviteTokens = sqliteTable('invite_tokens', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  token: text('token').unique().notNull(),
+  email: text('email'), // if set, only this email can use the invite
+  role: text('role').notNull(), // role granted on registration
+  company_id: integer('company_id').references(() => companies.id),
+  created_by: integer('created_by').references(() => users.id),
+  expires_at: text('expires_at').notNull(),
+  used_at: text('used_at'),
+  used_by: integer('used_by').references(() => users.id),
+  created_at: text('created_at').default("datetime('now')"),
+});
+
+export const sessions = sqliteTable('sessions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  token: text('token').unique().notNull(),
+  user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  expires_at: text('expires_at').notNull(),
+  created_at: text('created_at').default("datetime('now')"),
 });
 
 export const supplierMaster = sqliteTable('supplier_master', {

@@ -26,11 +26,15 @@ process.env.UPLOAD_DIR = uploadDir;
 import { serve } from '@hono/node-server';
 import { createApp } from './app';
 import { createDb } from './db/client';
+import { seedAdminIfNeeded } from './db/seed';
+
 const { db } = createDb(dbPath);
+await seedAdminIfNeeded(db);
 const app = createApp(db);
 
 const port = parseInt(process.env.PORT || '3002', 10);
-console.log(`Invoice Extractor API running on http://localhost:${port}`);
+const authStatus = process.env.AUTH_ENABLED === 'true' ? 'enabled' : 'disabled';
+console.log(`Invoice Extractor API running on http://localhost:${port} (auth: ${authStatus})`);
 serve({ fetch: app.fetch, port });
 
 export { app };
