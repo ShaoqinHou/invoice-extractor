@@ -326,7 +326,8 @@ Rules:
       const text = result.choices?.[0]?.message?.content?.trim() || '[No VLM output]';
       pageTexts.push(text);
     } catch (e) {
-      pageTexts.push(`[VLM OCR failed: ${e instanceof Error ? e.message : e}]`);
+      // Re-throw so runVlmOcrWithFallback can catch and fall back to legacy OCR
+      throw e;
     }
   }
 
