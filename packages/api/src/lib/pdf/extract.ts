@@ -157,50 +157,38 @@ async function runOcrPipeline(
 }
 
 /**
- * Primary OCR: VLM with full legacy fallback chain.
- * VLM (tier 2) → Tesseract (legacy tier 2) → PaddleOCR (legacy tier 3).
+ * Primary OCR: VLM (no fallback — errors propagate so we can diagnose).
+ * Legacy fallback is available but disabled by default.
+ * Set ENABLE_OCR_FALLBACK=true to enable PaddleOCR fallback on VLM failure.
  */
 export async function runVlmOcrWithFallback(imageDir: string): Promise<PdfExtraction> {
-  // Try VLM first (requires ZAI_API_KEY)
-  if (process.env.ZAI_API_KEY) {
-    try {
-      console.log('Tier 2: VLM OCR (preprocess + glm-4.6v-flash)...');
-      const result = await runVlmOcr(imageDir);
-      result.ocrTier = 2;
-      console.log('VLM OCR succeeded');
-      return result;
-    } catch (e) {
-      console.warn('VLM OCR failed, falling back to legacy OCR:', e instanceof Error ? e.message : e);
-    }
-  } else {
-    console.log('Tier 2: ZAI_API_KEY not set, falling back to legacy OCR');
+  if (!process.env.ZAI_API_KEY) {
+    console.log('Tier 2: ZAI_API_KEY not set, using PaddleOCR fallback');
+    return runLegacyOcrPipeline(imageDir);
   }
 
-  // Legacy fallback: Tesseract → PaddleOCR
-  return runLegacyOcrPipeline(imageDir);
+  const fallbackEnabled = process.env.ENABLE_OCR_FALLBACK === 'true';
+
+  try {
+    console.log('Tier 2: VLM OCR (preprocess + glm-4.6v-flash)...');
+    const result = await runVlmOcr(imageDir);
+    result.ocrTier = 2;
+    console.log('VLM OCR succeeded');
+    return result;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (fallbackEnabled) {
+      console.warn('VLM OCR failed, falling back to PaddleOCR:', msg);
+      return runLegacyOcrPipeline(imageDir);
+    }
+    console.error('VLM OCR failed (no fallback):', msg);
+    throw e;
+  }
 }
 
-/** Legacy OCR fallback: Tesseract with PaddleOCR escalation. */
+/** Legacy OCR fallback: PaddleOCR directly (Tesseract skipped). */
 async function runLegacyOcrPipeline(imageDir: string): Promise<PdfExtraction> {
-  try {
-    const tesseractResult = await runTesseract(imageDir);
-    const quality = assessQuality(tesseractResult, null);
-
-    if (quality.accept) {
-      console.log(`Legacy Tesseract accepted (${quality.reason})`);
-      return {
-        fullText: tesseractResult.fullText,
-        pages: tesseractResult.pages,
-        totalPages: tesseractResult.totalPages,
-        ocrTier: 2,
-      };
-    }
-
-    console.log(`Legacy Tesseract rejected (${quality.reason}) — escalating to PaddleOCR`);
-  } catch (e) {
-    console.warn('Legacy Tesseract failed:', e instanceof Error ? e.message : e);
-  }
-
+  console.log('Legacy fallback: running PaddleOCR directly...');
   const paddleResult = await runPaddleOcr(imageDir);
   paddleResult.ocrTier = 3;
   return paddleResult;

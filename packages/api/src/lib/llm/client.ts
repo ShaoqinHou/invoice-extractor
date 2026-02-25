@@ -4,12 +4,6 @@ let _client: Anthropic | null = null;
 let _workingModel: string | null = null;
 
 const DEFAULT_BASE_URL = 'https://api.z.ai/api/anthropic';
-const MODEL_CANDIDATES = [
-  process.env.ZAI_MODEL || 'glm-5',
-  'glm-4.7',
-  'claude-sonnet-4-20250514',
-  'claude-haiku-4-5-20251001',
-];
 
 export function getClient(): Anthropic {
   if (!_client) {
@@ -34,7 +28,15 @@ export async function getWorkingModel(): Promise<string> {
 
   const client = getClient();
 
-  for (const model of MODEL_CANDIDATES) {
+  // Read env var lazily (dotenv runs after module imports)
+  const candidates = [
+    process.env.ZAI_MODEL || 'glm-4.7',
+    'glm-4.7',
+    'claude-sonnet-4-20250514',
+    'claude-haiku-4-5-20251001',
+  ];
+
+  for (const model of candidates) {
     try {
       await client.messages.create({
         model,
