@@ -3,7 +3,8 @@
 Pipeline:
 1. Orientation detection (PP-LCNet_x1_0_doc_ori via PaddleX) — detect 0/90/180/270, auto-rotate
 2. Unwarping (UVDoc via PaddleX) — flatten curved/folded documents
-3. Format + Resize (Pillow) — JPEG q90, only scale down if >5MB
+3. Image enhancement — CLAHE adaptive contrast, denoise, sharpen
+4. Format + Resize (Pillow) — JPEG q90, only scale down if >5MB
 
 Models are loaded ONCE and reused for all pages.
 
@@ -49,6 +50,32 @@ def save_capped_jpeg(img, out_path: str, quality: int = 90) -> None:
 
     with open(out_path, "wb") as f:
         f.write(buf.getvalue())
+
+
+def enhance_image(pil_img):
+    """Enhance image for better OCR: CLAHE contrast, denoise, sharpen."""
+    import cv2
+    import numpy as np
+    from PIL import ImageEnhance
+
+    # PIL RGB → OpenCV BGR
+    img_cv = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+    # CLAHE on lightness channel (preserves color)
+    lab = cv2.cvtColor(img_cv, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    l = clahe.apply(l)
+    img_cv = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
+
+    # Light denoise (preserve text edges)
+    img_cv = cv2.fastNlMeansDenoisingColored(img_cv, None, 5, 5, 7, 21)
+
+    # Back to PIL for sharpen + contrast
+    pil_out = Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
+    pil_out = ImageEnhance.Sharpness(pil_out).enhance(1.5)
+    pil_out = ImageEnhance.Contrast(pil_out).enhance(1.1)
+    return pil_out
 
 
 def preprocess(image_dir: str) -> dict:
@@ -131,7 +158,13 @@ def preprocess(image_dir: str) -> dict:
                 sys.stderr.write(f"  page {page_idx}: unwarping skipped ({e})\n")
                 sys.stderr.flush()
 
-            # Step 3: Convert to JPEG q90, cap at 5MB
+            # Step 3: Enhance — CLAHE + denoise + sharpen
+            img = enhance_image(img)
+            info["enhanced"] = True
+            sys.stderr.write(f"  page {page_idx}: enhanced\n")
+            sys.stderr.flush()
+
+            # Step 4: Convert to JPEG q90, cap at 5MB
             out_file = f"page_{page_idx}_pre.jpg"
             out_path = os.path.join(image_dir, out_file)
             save_capped_jpeg(img, out_path)

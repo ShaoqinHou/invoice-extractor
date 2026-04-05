@@ -268,13 +268,7 @@ async function runVlmOcr(imageDir: string): Promise<PdfExtraction> {
 
   const VLM_MODEL = 'glm-4.6v-flash';
   const VLM_ENDPOINT = 'https://api.z.ai/api/paas/v4/chat/completions';
-  const VLM_PROMPT = `Extract ALL text from this document image exactly as it appears, preserving layout.
-Rules:
-- Each line of text should be its own line in your output
-- Items and their prices should be on the same line, separated by spaces
-- Preserve all numbers, prices, dates, and codes exactly
-- Include headers, footers, barcodes text, everything visible
-- Output ONLY the raw extracted text, no commentary, no markdown formatting`;
+  const VLM_PROMPT = `Extract ALL text from this image exactly as printed, from top to bottom. Every line of text on its own line. Preserve all numbers and characters exactly. No commentary, no formatting, just the raw text.`;
 
   const pageTexts: string[] = [];
 
@@ -290,7 +284,8 @@ Rules:
           ],
         }],
         stream: false,
-        max_tokens: 4096,
+        max_tokens: 8192,
+        temperature: 0,
       };
 
       const resp = await fetch(VLM_ENDPOINT, {
