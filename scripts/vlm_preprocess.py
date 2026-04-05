@@ -158,11 +158,16 @@ def preprocess(image_dir: str) -> dict:
                 sys.stderr.write(f"  page {page_idx}: unwarping skipped ({e})\n")
                 sys.stderr.flush()
 
-            # Step 3: Enhance — CLAHE + denoise + sharpen
-            img = enhance_image(img)
-            info["enhanced"] = True
-            sys.stderr.write(f"  page {page_idx}: enhanced\n")
-            sys.stderr.flush()
+            # Step 3: Optional enhancement — CLAHE + denoise + sharpen
+            if os.environ.get("VLM_ENHANCE", "").lower() in ("1", "true", "yes"):
+                try:
+                    img = enhance_image(img)
+                    info["enhanced"] = True
+                    sys.stderr.write(f"  page {page_idx}: enhanced\n")
+                    sys.stderr.flush()
+                except Exception as e:
+                    sys.stderr.write(f"  page {page_idx}: enhancement skipped ({e})\n")
+                    sys.stderr.flush()
 
             # Step 4: Convert to JPEG q90, cap at 5MB
             out_file = f"page_{page_idx}_pre.jpg"
