@@ -41,6 +41,69 @@ const TESSERACT_SCRIPT = path.join(SCRIPTS_DIR, 'tesseract_ocr.py');
 const PADDLE_SCRIPT = path.join(SCRIPTS_DIR, 'paddle_ocr.py');
 const VLM_PREPROCESS_SCRIPT = path.join(SCRIPTS_DIR, 'vlm_preprocess.py');
 
+// ─── VLM OCR shared config ─────────────────────────────────────────
+const VLM_MODEL = 'glm-4.6v-flash';
+const VLM_ENDPOINT = 'https://api.z.ai/api/paas/v4/chat/completions';
+const VLM_PROMPT = `Extract ALL text from this image exactly as printed, from top to bottom. Every line of text on its own line. Preserve all numbers and characters exactly. No commentary, no formatting, just the raw text.`;
+const VLM_MAX_TOKENS = 8192;
+const VLM_MAX_BYTES = 5 * 1024 * 1024; // 5MB API limit
+const VLM_RETRY_ATTEMPTS = 3;
+const VLM_RETRY_DELAYS = [10_000, 20_000, 40_000]; // ms
+
+/**
+ * Call the VLM API with retry on 429/5xx errors.
+ * Returns the text content from the model response.
+ */
+async function callVlmWithRetry(
+  apiKey: string,
+  imageBase64: string,
+  mimeType: string,
+): Promise<string> {
+  for (let attempt = 0; attempt <= VLM_RETRY_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      const delay = VLM_RETRY_DELAYS[attempt - 1] ?? 40_000;
+      console.log(`  VLM retry ${attempt}/${VLM_RETRY_ATTEMPTS} in ${delay / 1000}s...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+
+    const resp = await fetch(VLM_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: VLM_MODEL,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+            { type: 'text', text: VLM_PROMPT },
+          ],
+        }],
+        stream: false,
+        max_tokens: VLM_MAX_TOKENS,
+        temperature: 0,
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    if (resp.status === 429 || resp.status === 502 || resp.status === 503) {
+      if (attempt < VLM_RETRY_ATTEMPTS) continue;
+    }
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`VLM API ${resp.status}: ${errText}`);
+    }
+
+    const result = await resp.json() as {
+      choices: { message: { content: string } }[];
+    };
+    return result.choices?.[0]?.message?.content?.trim() || '[No VLM output]';
+  }
+  throw new Error('VLM API failed after all retries');
+}
+
 /** Supported image extensions (non-PDF documents that go straight to OCR). */
 export const IMAGE_EXTENSIONS = new Set([
   '.heic', '.heif', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.webp',
@@ -285,52 +348,10 @@ async function runVlmOcr(imageDir: string): Promise<PdfExtraction> {
   // Preprocess: orient + unwarp + JPEG (or fall back to simple resize)
   const pageBase64s = await preprocessImagesForVlm(imageDir, pageCount);
 
-  const VLM_MODEL = 'glm-4.6v-flash';
-  const VLM_ENDPOINT = 'https://api.z.ai/api/paas/v4/chat/completions';
-  const VLM_PROMPT = `Extract ALL text from this image exactly as printed, from top to bottom. Every line of text on its own line. Preserve all numbers and characters exactly. No commentary, no formatting, just the raw text.`;
-
   const pageTexts: string[] = [];
-
   for (let i = 0; i < pageBase64s.length; i++) {
-    try {
-      const payload = {
-        model: VLM_MODEL,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${pageBase64s[i]}` } },
-            { type: 'text', text: VLM_PROMPT },
-          ],
-        }],
-        stream: false,
-        max_tokens: 8192,
-        temperature: 0,
-      };
-
-      const resp = await fetch(VLM_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(120_000),
-      });
-
-      if (!resp.ok) {
-        const errText = await resp.text();
-        throw new Error(`VLM API ${resp.status}: ${errText}`);
-      }
-
-      const result = await resp.json() as {
-        choices: { message: { content: string } }[];
-      };
-      const text = result.choices?.[0]?.message?.content?.trim() || '[No VLM output]';
-      pageTexts.push(text);
-    } catch (e) {
-      // Re-throw so runVlmOcrWithFallback can catch and fall back to legacy OCR
-      throw e;
-    }
+    const text = await callVlmWithRetry(apiKey, pageBase64s[i], 'image/jpeg');
+    pageTexts.push(text);
   }
 
   const fullText = pageTexts.join('\n\n---\n\n');
@@ -345,54 +366,29 @@ async function runVlmOcr(imageDir: string): Promise<PdfExtraction> {
 /**
  * Send a raw image file directly to VLM OCR — no preprocessing.
  * Used for JPG/PNG uploads where the original image quality is best.
+ * Resizes if the file exceeds 5MB (VLM API limit).
  */
 export async function runVlmOcrDirect(imagePath: string): Promise<PdfExtraction> {
   const apiKey = process.env.ZAI_API_KEY;
   if (!apiKey) throw new Error('ZAI_API_KEY required for VLM OCR');
 
-  const buf = fs.readFileSync(imagePath);
-  const b64 = buf.toString('base64');
-  const ext = path.extname(imagePath).toLowerCase();
-  const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
-
-  const VLM_MODEL = 'glm-4.6v-flash';
-  const VLM_ENDPOINT = 'https://api.z.ai/api/paas/v4/chat/completions';
-  const VLM_PROMPT = `Extract ALL text from this image exactly as printed, from top to bottom. Every line of text on its own line. Preserve all numbers and characters exactly. No commentary, no formatting, just the raw text.`;
-
   console.log('Tier 2: VLM OCR (direct, no preprocess)...');
 
-  const resp = await fetch(VLM_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: VLM_MODEL,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } },
-          { type: 'text', text: VLM_PROMPT },
-        ],
-      }],
-      stream: false,
-      max_tokens: 8192,
-      temperature: 0,
-    }),
-    signal: AbortSignal.timeout(120_000),
-  });
+  let b64: string;
+  const ext = path.extname(imagePath).toLowerCase();
+  let mime = ext === '.png' ? 'image/png' : 'image/jpeg';
 
-  if (!resp.ok) {
-    const errText = await resp.text();
-    throw new Error(`VLM API ${resp.status}: ${errText}`);
+  const fileSize = fs.statSync(imagePath).size;
+  if (fileSize > VLM_MAX_BYTES) {
+    // Resize large images to fit under 5MB
+    console.log(`  Image ${(fileSize / 1024 / 1024).toFixed(1)}MB > 5MB, resizing...`);
+    b64 = await resizeImageForVlm(imagePath, 2000);
+    mime = 'image/jpeg'; // resized output is always JPEG
+  } else {
+    b64 = fs.readFileSync(imagePath).toString('base64');
   }
 
-  const result = await resp.json() as {
-    choices: { message: { content: string } }[];
-  };
-  const text = result.choices?.[0]?.message?.content?.trim() || '[No VLM output]';
-
+  const text = await callVlmWithRetry(apiKey, b64, mime);
   console.log('VLM OCR succeeded (direct)');
 
   return {

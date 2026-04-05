@@ -53,15 +53,24 @@ The `PipelineQueue` is a singleton that processes jobs with concurrency control:
 - **OCR mutex** — only 1 OCR job at a time (RAM constraint)
 - **WorkerManager** — persistent Python child processes communicating via NDJSON over stdin/stdout, with idle timeout auto-shutdown
 
-### Three-Tier OCR Strategy (packages/api/src/lib/pdf/extract.ts)
+### OCR Strategy (packages/api/src/lib/pdf/extract.ts)
 
+**PDFs:**
 1. **Tier 1: pymupdf4llm** (~1s) — text-layer extraction for clean PDFs
-2. **Tier 2: Tesseract** (~3s) — OCR on Ghostscript-rendered images for broken fonts/scans
-3. **Tier 3: PaddleOCR PP-StructureV3** (~10s) — deep learning for poor quality input
+2. **Tier 2: VLM OCR** (~40-60s) — Ghostscript renders pages → PaddleX orient/unwarp → glm-4.6v-flash reads text
 
-Quality assessment gates between tiers: CID garbage detection, confidence thresholds (≥80%), low-confidence word ratio (≤10%), number cross-referencing against text layer.
+Quality gates between tiers: CID garbage detection, replacement char count, minimum text length.
 
-Image files (HEIC, JPG, PNG, etc.) skip tier 1 and go straight to OCR.
+**Images (JPG, PNG):**
+- Sent **directly** to glm-4.6v-flash — no preprocessing, no conversion. Raw image quality produces the best OCR results.
+- Files >5MB are resized (Pillow LANCZOS) before sending.
+- VLM calls include retry on 429/5xx (3 attempts with exponential backoff).
+
+**Images (HEIC, TIFF, BMP, WEBP):**
+- Converted to PNG first (`image_to_pages.py`), then preprocessed (orient + unwarp) and sent to VLM.
+
+**Legacy fallback:** PaddleOCR (tier 3) is available via `ENABLE_OCR_FALLBACK=true` but not used by default.
+Optional image enhancement (CLAHE + denoise + sharpen) via `VLM_ENHANCE=true` in vlm_preprocess.py — off by default.
 
 ### LLM Agentic Extraction (packages/api/src/lib/llm/)
 
@@ -93,15 +102,19 @@ Called as child processes from the API. Each script reads input and writes JSON 
 - `pymupdf4llm_extract.py`, `pymupdf_worker.py` — text-layer extraction
 - `gs_render.py` — Ghostscript PDF→image rendering
 - `image_to_pages.py` — image file conversion
-- `tesseract_ocr.py`, `ocr_worker.py` — Tesseract OCR
-- `paddle_ocr.py` — PaddleOCR
+- `vlm_preprocess.py` — PaddleX orientation + UVDoc unwarping + optional enhancement
+- `enhance_image.py` — standalone CLAHE + denoise + sharpen (used by vlm_preprocess.py)
+- `tesseract_ocr.py`, `ocr_worker.py` — legacy Tesseract OCR (not active by default)
+- `paddle_ocr.py` — legacy PaddleOCR (not active by default)
 
 ## Environment Variables
 
 Configured via `.env` at project root (see `.env.example`):
-- `ZAI_API_KEY`, `ZAI_BASE_URL`, `ZAI_MODEL` — LLM API configuration
+- `ZAI_API_KEY`, `ZAI_BASE_URL`, `ZAI_MODEL` — LLM API (z.ai Anthropic-compatible proxy)
 - `DATABASE_PATH` — SQLite DB path (default: `./data/invoices.db`)
 - `UPLOAD_DIR` — file storage (default: `./uploads`)
+- `ENABLE_OCR_FALLBACK` — set `true` to fall back to PaddleOCR when VLM fails
+- `VLM_ENHANCE` — set `true` to enable image enhancement in vlm_preprocess.py
 
 Relative paths in env are resolved against project root by `packages/api/src/index.ts`.
 
