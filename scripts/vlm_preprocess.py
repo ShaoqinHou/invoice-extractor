@@ -56,7 +56,7 @@ def enhance_image(pil_img):
     """Enhance image for better OCR: CLAHE contrast, denoise, sharpen."""
     import cv2
     import numpy as np
-    from PIL import ImageEnhance
+    from PIL import Image, ImageEnhance
 
     # PIL RGB → OpenCV BGR
     img_cv = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
