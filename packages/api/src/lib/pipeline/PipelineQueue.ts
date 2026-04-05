@@ -8,6 +8,7 @@ import {
   cleanupImageDir,
   assessPymupdfQuality,
   runVlmOcrWithFallback,
+  runVlmOcrDirect,
   type PdfExtraction,
 } from '../pdf/extract';
 import { agenticExtract } from '../llm/agent';
@@ -308,8 +309,17 @@ export class PipelineQueue {
     }
   }
 
-  /** Extract text from an image file: convert to pages → VLM OCR (with legacy fallback). */
+  /** Extract text from an image file. JPG/PNG go direct to VLM; others convert first. */
   private async extractImage(absolutePath: string): Promise<PdfExtraction> {
+    const ext = path.extname(absolutePath).toLowerCase();
+    const directFormats = new Set(['.jpg', '.jpeg', '.png']);
+
+    if (directFormats.has(ext)) {
+      // Send raw image directly — no preprocessing, best quality
+      return runVlmOcrDirect(absolutePath);
+    }
+
+    // HEIC, TIFF, BMP, WEBP need conversion first
     const imageDir = await convertImageToPages(absolutePath);
     try {
       return await runVlmOcrWithFallback(imageDir);

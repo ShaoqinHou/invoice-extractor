@@ -346,7 +346,7 @@ async function runVlmOcr(imageDir: string): Promise<PdfExtraction> {
  * Send a raw image file directly to VLM OCR — no preprocessing.
  * Used for JPG/PNG uploads where the original image quality is best.
  */
-async function runVlmOcrDirect(imagePath: string): Promise<PdfExtraction> {
+export async function runVlmOcrDirect(imagePath: string): Promise<PdfExtraction> {
   const apiKey = process.env.ZAI_API_KEY;
   if (!apiKey) throw new Error('ZAI_API_KEY required for VLM OCR');
 
