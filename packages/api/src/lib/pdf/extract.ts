@@ -121,8 +121,27 @@ async function extractFromPdf(absolutePath: string): Promise<PdfExtraction> {
   return runOcrPipeline(imageDir, textLayerResult, textLayerBroken);
 }
 
-/** Extract from an image file: convert to page image, then run OCR pipeline. */
+/**
+ * Extract from an image file.
+ *
+ * For standard image formats (JPG, PNG), send the raw image directly to the VLM
+ * without preprocessing. This avoids quality loss from PNG conversion + unwarping
+ * on images that are already flat and readable.
+ *
+ * For formats that need conversion (HEIC, TIFF, BMP, WEBP), convert first then
+ * run through the standard pipeline.
+ */
 async function extractFromImages(absolutePath: string): Promise<PdfExtraction> {
+  const ext = path.extname(absolutePath).toLowerCase();
+  const directFormats = new Set(['.jpg', '.jpeg', '.png']);
+
+  if (directFormats.has(ext)) {
+    // Send raw image directly to VLM — no preprocessing, no quality loss
+    console.log('Image file: sending raw to VLM (skipping preprocess)');
+    return runVlmOcrDirect(absolutePath);
+  }
+
+  // HEIC, TIFF, BMP, WEBP need conversion first
   let imageDir: string;
   try {
     imageDir = await convertImageToPages(absolutePath);
@@ -319,6 +338,67 @@ async function runVlmOcr(imageDir: string): Promise<PdfExtraction> {
     fullText,
     pages: pageTexts,
     totalPages: pageCount,
+    ocrTier: 2,
+  };
+}
+
+/**
+ * Send a raw image file directly to VLM OCR — no preprocessing.
+ * Used for JPG/PNG uploads where the original image quality is best.
+ */
+async function runVlmOcrDirect(imagePath: string): Promise<PdfExtraction> {
+  const apiKey = process.env.ZAI_API_KEY;
+  if (!apiKey) throw new Error('ZAI_API_KEY required for VLM OCR');
+
+  const buf = fs.readFileSync(imagePath);
+  const b64 = buf.toString('base64');
+  const ext = path.extname(imagePath).toLowerCase();
+  const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
+
+  const VLM_MODEL = 'glm-4.6v-flash';
+  const VLM_ENDPOINT = 'https://api.z.ai/api/paas/v4/chat/completions';
+  const VLM_PROMPT = `Extract ALL text from this image exactly as printed, from top to bottom. Every line of text on its own line. Preserve all numbers and characters exactly. No commentary, no formatting, just the raw text.`;
+
+  console.log('Tier 2: VLM OCR (direct, no preprocess)...');
+
+  const resp = await fetch(VLM_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: VLM_MODEL,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } },
+          { type: 'text', text: VLM_PROMPT },
+        ],
+      }],
+      stream: false,
+      max_tokens: 8192,
+      temperature: 0,
+    }),
+    signal: AbortSignal.timeout(120_000),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`VLM API ${resp.status}: ${errText}`);
+  }
+
+  const result = await resp.json() as {
+    choices: { message: { content: string } }[];
+  };
+  const text = result.choices?.[0]?.message?.content?.trim() || '[No VLM output]';
+
+  console.log('VLM OCR succeeded (direct)');
+
+  return {
+    fullText: text,
+    pages: [text],
+    totalPages: 1,
     ocrTier: 2,
   };
 }
