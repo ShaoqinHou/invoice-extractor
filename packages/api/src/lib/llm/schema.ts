@@ -47,7 +47,7 @@ export function getInvoiceJsonSchema(): Record<string, unknown> {
           properties: {
             label: { type: 'string', description: 'Short, clear name for this entry. Use the document\'s own wording where possible.' },
             amount: { type: ['number', 'null'], description: 'Dollar amount. Negative for credits/discounts. Null if this entry has no amount (e.g., an info-only entry like a meter reading or account number).' },
-            type: { type: 'string', description: 'Category that groups related entries. Use descriptive names for the service/product (broadband, electricity, gas, water, phone, hosting, labour, materials, subscription, freight). Use "charge" only for one-off items. Summary rows use: subtotal, tax, total, due, adjustment, discount, info.' },
+            type: { type: 'string', description: 'Category that groups related entries. Use descriptive names for the service/product (broadband, electricity, gas, water, phone, hosting, labour, materials, subscription, freight). Use "charge" only for one-off items. Summary rows use: subtotal, due, adjustment, discount, info. Do NOT use "total" or "tax" — those values go in header fields only.' },
             attrs: {
               type: ['object', 'null'],
               description: 'Additional structured details for this entry. Use clean key-value pairs — not prose. IMPORTANT: within the same type group, use CONSISTENT keys across all entries so they form clean table columns. Examples: {"quantity": 6, "unit": "kL", "unit_rate": 2.142}, {"period": "2024-07-14 to 2024-08-13"}, {"kwh": 234, "unit_rate": 0.1932}. Only include what the document explicitly shows.',

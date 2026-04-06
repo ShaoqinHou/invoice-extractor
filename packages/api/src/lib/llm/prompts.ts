@@ -24,7 +24,8 @@ GROUP ENTRIES BY CATEGORY:
   "materials", "subscription", "freight". Use "charge" only for one-off items that don't
   belong to a larger group.
 
-  Summary rows (subtotal, tax, total, due) keep their standard type names.
+  Summary rows (subtotal, due, adjustment, discount) keep their standard type names.
+  Do NOT create entries with type "total" or "tax" — those go in header fields only.
 
   Within each group, use CONSISTENT attrs keys across all entries in that group.
   This lets entries form clean table columns when displayed.
@@ -87,8 +88,8 @@ HEADER FIELDS:
   gst_amount = GST/VAT/tax amount if shown separately.
   gst_number = the supplier's GST/VAT/tax registration number if shown (e.g. "123-456-789").
   due_date = payment due date in YYYY-MM-DD format if shown.
-  These go in the top-level fields, SEPARATE from entries. The entries still list the
-  subtotal, GST, and total as individual entries too — the header fields are a convenience.
+  These go ONLY in the top-level fields — do NOT create entries with type "total" or "tax"
+  for the same values. The header fields are the single source of truth for total and GST.
 
 EXAMPLE — a combined utilities invoice might produce:
   total_amount: 285.50,
@@ -100,13 +101,12 @@ EXAMPLE — a combined utilities invoice might produce:
     { label: "Usage charge", amount: 45.20, type: "electricity", attrs: { "unit": "kWh", "unit_amount": 234, "unit_price": 0.1932, "extra1": "2024-07-01 to 2024-07-31", "extra1_label": "Period" } },
     { label: "Daily charge", amount: 31.00, type: "electricity", attrs: { "unit": "day", "unit_amount": 31, "unit_price": 1.00, "extra1": "2024-07-01 to 2024-07-31", "extra1_label": "Period" } },
     { label: "Prompt payment discount", amount: -5.50, type: "discount" },
-    { label: "Subtotal", amount: 159.70, type: "subtotal" },
-    { label: "GST 15%", amount: 37.24, type: "tax" },
-    { label: "Total", amount: 285.50, type: "total" }
+    { label: "Subtotal", amount: 159.70, type: "subtotal" }
   ]
 
   Note how electricity entries share the same attrs keys (unit, unit_amount, unit_price, extra1)
-  so they form clean columns. The broadband entry has its own attrs. Summary rows at the end.
+  so they form clean columns. The broadband entry has its own attrs.
+  Total and GST are in the header fields only — not repeated as entries.
 
 The goal is: the owner glances at your output and understands their invoice without opening the PDF.
 
