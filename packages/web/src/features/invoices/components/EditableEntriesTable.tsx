@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from "react";
+import type { EntryIssue } from "../lib/validateEntries";
 import {
   isCellInRange,
   isMultiCellSelection,
@@ -32,8 +33,8 @@ interface EditableEntriesTableProps {
   selectionProps: SelectionProps;
   /** Global row map */
   rowMap: SectionRowMap;
-  /** Per-entry validation issues: globalIndex → tooltip message */
-  validationIssues?: Map<number, string>;
+  /** Per-entry validation issues: globalIndex → issue details */
+  validationIssues?: Map<number, EntryIssue>;
 }
 
 const SUMMARY_TYPES = new Set(["subtotal", "total", "due", "tax", "discount", "adjustment"]);
@@ -698,7 +699,7 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
   selectRange: (startRow: number, startCol: number, endRow: number, endCol: number) => void;
   globalHeaderRow: number;
   globalDataStart: number;
-  validationIssues?: Map<number, string>;
+  validationIssues?: Map<number, EntryIssue>;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(group.type);
@@ -875,6 +876,7 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
               const attrs = entry.attrs ?? {};
               const globalRow = globalDataStart + localRow;
               const isActiveRow = activeCell?.row === localRow;
+              const entryIssue = validationIssues?.get(globalIndex);
               return (
                 <tr key={globalIndex} className={hasMultiSelection ? "" : "hover:bg-blue-50/30"}>
                   {/* Label cell (col 0) */}
@@ -911,7 +913,6 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                     const inRange = range ? isCellInRange(globalRow, colIdx, range) : false;
                     const isAnchor = hasMultiSelection && selection?.anchor.row === globalRow && selection?.anchor.col === colIdx;
                     const isActive = !hasMultiSelection && isActiveRow && activeCell?.col === colIdx;
-                    const issueMsg = validationIssues?.get(globalIndex);
                     return (
                       <td
                         {...{ [DATA_ATTR_ROW]: globalRow, [DATA_ATTR_COL]: colIdx }}
@@ -919,10 +920,10 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                           isAnchor ? anchorCellClass
                             : inRange && hasMultiSelection ? selectedCellClass
                             : isActive ? "border-blue-400"
-                            : issueMsg ? "border-amber-300 bg-amber-50"
+                            : entryIssue ? "border-amber-300 bg-amber-50"
                             : "border-gray-200"
                         }`}
-                        title={issueMsg ?? undefined}
+                        title={entryIssue?.message ?? undefined}
                         onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, colIdx)}
                       >
                         <input
@@ -932,7 +933,7 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                           step="0.01"
                           value={entry.amount ?? ""}
                           onChange={e => onUpdate(globalIndex, "amount", e.target.value)}
-                          className={`${isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : isActive ? activeCellInputClass : issueMsg ? cellInputAmberClass : cellInputClass} text-right tabular-nums`}
+                          className={`${isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : isActive ? activeCellInputClass : entryIssue ? cellInputAmberClass : cellInputClass} text-right tabular-nums`}
                         />
                       </td>
                     );
@@ -943,6 +944,7 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                     const inRange = range ? isCellInRange(globalRow, colIdx, range) : false;
                     const isAnchor = hasMultiSelection && selection?.anchor.row === globalRow && selection?.anchor.col === colIdx;
                     const isActive = !hasMultiSelection && isActiveRow && activeCell?.col === colIdx;
+                    const attrInvolved = entryIssue?.involvedAttrs.has(col.key);
                     return (
                       <td
                         key={col.key}
@@ -951,8 +953,10 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                           isAnchor ? anchorCellClass
                             : inRange && hasMultiSelection ? selectedCellClass
                             : isActive ? "border-blue-400"
+                            : attrInvolved ? "border-amber-300 bg-amber-50"
                             : "border-gray-200"
                         }`}
+                        title={attrInvolved ? entryIssue?.message : undefined}
                         onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, colIdx)}
                       >
                         <input
@@ -960,7 +964,7 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                           data-col={colIdx}
                           value={formatAttrValue(attrs[col.key])}
                           onChange={e => onUpdateAttr(globalIndex, col.key, e.target.value)}
-                          className={isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : isActive ? activeCellInputClass : cellInputClass}
+                          className={isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : isActive ? activeCellInputClass : attrInvolved ? cellInputAmberClass : cellInputClass}
                         />
                       </td>
                     );

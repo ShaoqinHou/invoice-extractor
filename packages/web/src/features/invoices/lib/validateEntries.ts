@@ -2,12 +2,22 @@ import type { EntryRow } from '../components/EditableEntriesTable';
 
 const SUMMARY_TYPES = new Set(['subtotal', 'total', 'due', 'tax', 'discount', 'adjustment']);
 
+export interface EntryIssue {
+  message: string;
+  /** Attr keys involved in the mismatch (e.g. unit_price, unit_amount) — highlight these cells too */
+  involvedAttrs: Set<string>;
+}
+
 export interface ValidationResult {
-  /** globalIndex → tooltip message for entry amount cells */
-  entryIssues: Map<number, string>;
+  /** globalIndex → issue details for entry cells */
+  entryIssues: Map<number, EntryIssue>;
   /** 'total' | 'gst' → tooltip message for header fields */
   headerIssues: Map<string, string>;
 }
+
+/** Attr key aliases — maps all variants to the normalized key used in the table */
+const QTY_KEYS = ['unit_amount', 'quantity', 'qty'] as const;
+const PRICE_KEYS = ['unit_price', 'unit_rate', 'rate'] as const;
 
 /**
  * Client-side arithmetic validation of invoice entries.
@@ -19,7 +29,7 @@ export function validateEntries(
   gstAmount: string,
   currency: string,
 ): ValidationResult {
-  const entryIssues = new Map<number, string>();
+  const entryIssues = new Map<number, EntryIssue>();
   const headerIssues = new Map<string, string>();
 
   // ── Per-entry: rate × qty ≈ amount ──
@@ -28,16 +38,24 @@ export function validateEntries(
     if (entry.amount == null || !entry.attrs) continue;
 
     const attrs = entry.attrs as Record<string, unknown>;
-    const unitPrice = toNumber(attrs.unit_price ?? attrs.unit_rate ?? attrs.rate);
-    const qty = toNumber(attrs.unit_amount ?? attrs.quantity ?? attrs.qty);
+
+    // Find which key is actually used for price and qty
+    const priceKey = PRICE_KEYS.find(k => attrs[k] != null);
+    const qtyKey = QTY_KEYS.find(k => attrs[k] != null);
+
+    if (!priceKey || !qtyKey) continue;
+
+    const unitPrice = toNumber(attrs[priceKey]);
+    const qty = toNumber(attrs[qtyKey]);
 
     if (unitPrice != null && qty != null) {
       const expected = round2(unitPrice * qty);
       const diff = Math.abs(expected - entry.amount);
       if (diff > 0.02) {
-        entryIssues.set(i,
-          `${qty} × $${unitPrice.toFixed(2)} = $${expected.toFixed(2)} but amount is $${entry.amount.toFixed(2)} (diff: $${diff.toFixed(2)})`
-        );
+        entryIssues.set(i, {
+          message: `${qty} × $${unitPrice.toFixed(2)} = $${expected.toFixed(2)} but amount is $${entry.amount.toFixed(2)} (diff: $${diff.toFixed(2)})`,
+          involvedAttrs: new Set([priceKey, qtyKey]),
+        });
       }
     }
   }
@@ -51,7 +69,7 @@ export function validateEntries(
     if (lineItems.length > 0) {
       const sum = round2(lineItems.reduce((acc, e) => acc + (e.amount ?? 0), 0));
       const diff = Math.abs(sum - total);
-      if (diff > 1.00) {
+      if (diff > 0.10) {
         headerIssues.set('total',
           `Line items sum $${sum.toFixed(2)} ≠ total $${total.toFixed(2)} (diff: $${diff.toFixed(2)})`
         );

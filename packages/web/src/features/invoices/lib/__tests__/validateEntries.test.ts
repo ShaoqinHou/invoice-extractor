@@ -24,8 +24,10 @@ describe('validateEntries', () => {
       })];
       const { entryIssues } = validateEntries(entries, '25', '0', 'NZD');
       expect(entryIssues.size).toBe(1);
-      expect(entryIssues.get(0)).toContain('$30.00');
-      expect(entryIssues.get(0)).toContain('$25.00');
+      const issue = entryIssues.get(0)!;
+      expect(issue.message).toContain('$30.00');
+      expect(issue.message).toContain('$25.00');
+      expect(issue.involvedAttrs).toEqual(new Set(['unit_price', 'unit_amount']));
     });
 
     it('allows ±$0.02 rounding tolerance', () => {
@@ -44,6 +46,16 @@ describe('validateEntries', () => {
       })];
       const { entryIssues } = validateEntries(entries, '20', '0', 'NZD');
       expect(entryIssues.size).toBe(0);
+    });
+
+    it('includes actual attr keys in involvedAttrs', () => {
+      const entries = [makeEntry({
+        amount: 10,
+        attrs: { rate: 5, qty: 3 },
+      })];
+      const { entryIssues } = validateEntries(entries, '10', '0', 'NZD');
+      expect(entryIssues.size).toBe(1);
+      expect(entryIssues.get(0)!.involvedAttrs).toEqual(new Set(['rate', 'qty']));
     });
 
     it('handles alternate attr keys: rate, qty', () => {
@@ -84,24 +96,24 @@ describe('validateEntries', () => {
       expect(headerIssues.has('total')).toBe(false);
     });
 
-    it('allows ±$1.00 tolerance', () => {
+    it('allows ±$0.10 tolerance', () => {
       const entries = [
         makeEntry({ amount: 60 }),
-        makeEntry({ amount: 40.80 }),
+        makeEntry({ amount: 40.05 }),
       ];
       const { headerIssues } = validateEntries(entries, '100', '0', 'NZD');
       expect(headerIssues.has('total')).toBe(false);
     });
 
-    it('reports issue when sum differs from total by more than $1.00', () => {
+    it('reports issue when sum differs from total by more than $0.10', () => {
       const entries = [
         makeEntry({ amount: 60 }),
         makeEntry({ amount: 40 }),
       ];
-      const { headerIssues } = validateEntries(entries, '110', '0', 'NZD');
+      const { headerIssues } = validateEntries(entries, '100.50', '0', 'NZD');
       expect(headerIssues.has('total')).toBe(true);
       expect(headerIssues.get('total')).toContain('$100.00');
-      expect(headerIssues.get('total')).toContain('$110.00');
+      expect(headerIssues.get('total')).toContain('$100.50');
     });
 
     it('excludes summary entries from sum', () => {
