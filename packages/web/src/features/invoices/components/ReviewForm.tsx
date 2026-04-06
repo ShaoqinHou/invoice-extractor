@@ -54,7 +54,7 @@ const EXCEPTION_MESSAGES: Record<string, { title: string; description: string }>
   },
   value_mismatch: {
     title: "Value Mismatch",
-    description: "Supplier details differ from the supplier master record.",
+    description: "Arithmetic validation found discrepancies in the extracted values.",
   },
 };
 
@@ -328,9 +328,21 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
               <StatusBadge status="exception" />
             </div>
             <p className="mt-1 text-xs text-amber-700">{exceptionInfo.description}</p>
-            {invoice.exception_details && invoice.exception_details !== exceptionInfo.description && (
-              <p className="mt-1 text-xs text-amber-600">{invoice.exception_details}</p>
-            )}
+            {invoice.exception_details && (() => {
+              let items: string[] = [];
+              try { items = JSON.parse(invoice.exception_details); } catch { /* not JSON */ }
+              if (Array.isArray(items) && items.length > 0) {
+                return (
+                  <ul className="mt-1.5 space-y-0.5 text-xs text-amber-600 list-disc list-inside">
+                    {items.map((item, i) => <li key={i}>{item}</li>)}
+                  </ul>
+                );
+              }
+              if (invoice.exception_details !== exceptionInfo.description) {
+                return <p className="mt-1 text-xs text-amber-600">{invoice.exception_details}</p>;
+              }
+              return null;
+            })()}
           </div>
         )}
 

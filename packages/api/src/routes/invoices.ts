@@ -9,6 +9,7 @@ import { verifyOcrExtraction } from '../lib/llm/verify';
 import { extractPdfText, extractWithTier } from '../lib/pdf/extract';
 import { generateDisplayName } from '../utils/displayName';
 import { getScheduler } from '../lib/pipeline/PipelineQueue';
+import { validateExtraction } from '../lib/pipeline/validate';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
@@ -741,6 +742,15 @@ export function invoiceRoutes(db: BetterSQLite3Database) {
           }
         }
 
+        // Arithmetic validation
+        const validation = validateExtraction(ext);
+        let exceptionType: string | null = null;
+        let exceptionDetails: string | null = null;
+        if (validation.issues.length > 0) {
+          exceptionType = 'value_mismatch';
+          exceptionDetails = JSON.stringify(validation.issues);
+        }
+
         const displayName = generateDisplayName({
           invoice_date: ext.invoice_date ?? null,
           supplier_name: ext.supplier_name ?? null,
@@ -764,6 +774,8 @@ export function invoiceRoutes(db: BetterSQLite3Database) {
             raw_llm_response: result.rawConversation,
             status: 'draft',
             error_message: null,
+            exception_type: exceptionType,
+            exception_details: exceptionDetails,
           })
           .where(eq(invoices.id, invoiceId))
           .run();

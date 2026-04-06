@@ -22,6 +22,7 @@ import type { InvoiceExtraction } from '../llm/schema';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 import { normalizeAllEntryAttrs } from './normalizeAttrs';
+import { validateExtraction } from './validate';
 
 // ─── Semaphore ──────────────────────────────────────────────────────────
 
@@ -207,6 +208,16 @@ export class PipelineQueue {
         }
       }
 
+      // ─── Stage 3b: Arithmetic Validation ──────────────────────────
+      const validation = validateExtraction(ext2);
+      let exceptionType: string | null = null;
+      let exceptionDetails: string | null = null;
+      if (validation.issues.length > 0) {
+        exceptionType = 'value_mismatch';
+        exceptionDetails = JSON.stringify(validation.issues);
+        console.log(`Arithmetic validation found ${validation.issues.length} issue(s):`, validation.issues);
+      }
+
       // ─── Stage 4: Store ──────────────────────────────────────────
       const invoice = db.select().from(invoices).where(eq(invoices.id, invoiceId)).get();
       const displayName = generateDisplayName({
@@ -232,6 +243,8 @@ export class PipelineQueue {
           notes: ext2.notes ?? null,
           raw_llm_response: llmResult.rawConversation,
           status: 'draft',
+          exception_type: exceptionType,
+          exception_details: exceptionDetails,
         })
         .where(eq(invoices.id, invoiceId))
         .run();

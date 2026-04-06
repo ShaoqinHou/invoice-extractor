@@ -617,7 +617,7 @@ export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap
                           return (
                             <td
                               {...{ [DATA_ATTR_ROW]: globalRow, [DATA_ATTR_COL]: 2 }}
-                              className={`border p-0 w-24 ${
+                              className={`border p-0 w-28 ${
                                 isAnchor ? anchorCellClass
                                   : inRange && hasMultiSelection ? selectedCellClass
                                   : "border-gray-200"
@@ -851,7 +851,7 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                   <th
                     key={colIdx}
                     {...{ [DATA_ATTR_ROW]: globalHeaderRow, [DATA_ATTR_COL]: colIdx }}
-                    className={`border px-2 py-1 font-medium ${colIdx === 1 ? "text-right w-24" : ""} ${
+                    className={`border px-2 py-1 font-medium ${colIdx === 1 ? "text-right w-28" : ""} ${
                       isAnchor ? anchorCellClass
                         : inRange ? selectedHeaderClass
                         : "border-gray-200"
