@@ -32,6 +32,8 @@ interface EditableEntriesTableProps {
   selectionProps: SelectionProps;
   /** Global row map */
   rowMap: SectionRowMap;
+  /** Per-entry validation issues: globalIndex → tooltip message */
+  validationIssues?: Map<number, string>;
 }
 
 const SUMMARY_TYPES = new Set(["subtotal", "total", "due", "tax", "discount", "adjustment"]);
@@ -387,7 +389,7 @@ export function parseTsv(text: string): string[][] {
   return text.split(/\r?\n/).filter(line => line.length > 0).map(line => line.split("\t"));
 }
 
-export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap }: EditableEntriesTableProps) {
+export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap, validationIssues }: EditableEntriesTableProps) {
   const [newGroupName, setNewGroupName] = useState("");
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [copyAllFeedback, setCopyAllFeedback] = useState(false);
@@ -551,6 +553,7 @@ export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap
                 selectRange={selectRange}
                 globalHeaderRow={gm?.headerRow ?? 0}
                 globalDataStart={gm?.dataStart ?? 0}
+                validationIssues={validationIssues}
               />
             );
           })}
@@ -655,6 +658,7 @@ export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap
 
 /** Cell input style */
 const cellInputClass = "border border-gray-200 bg-white px-2 py-1 text-sm w-full outline-none focus:ring-1 focus:ring-blue-300";
+const cellInputAmberClass = "border border-amber-300 bg-amber-50 px-2 py-1 text-sm w-full outline-none focus:ring-1 focus:ring-amber-400";
 const activeCellInputClass = "border border-blue-400 bg-blue-50/40 px-2 py-1 text-sm w-full outline-none ring-1 ring-blue-300";
 /** Input style inside a selected cell — transparent bg so td highlight shows through, border hidden so td ring is the visible border. */
 const selectedCellInputClass = "border border-transparent bg-transparent px-2 py-1 text-sm w-full outline-none";
@@ -676,7 +680,7 @@ function ClipboardIcon() {
 }
 
 function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onAdd, onRename, onBulkChange,
-  selection, range, isDragging, hasMultiSelection, handleCellMouseDownEvent, selectRange, globalHeaderRow, globalDataStart }: {
+  selection, range, isDragging, hasMultiSelection, handleCellMouseDownEvent, selectRange, globalHeaderRow, globalDataStart, validationIssues }: {
   group: EntryGroup;
   allEntries: EntryRow[];
   onUpdate: (globalIndex: number, field: keyof EntryRow, value: string) => void;
@@ -694,6 +698,7 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
   selectRange: (startRow: number, startCol: number, endRow: number, endCol: number) => void;
   globalHeaderRow: number;
   globalDataStart: number;
+  validationIssues?: Map<number, string>;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(group.type);
@@ -906,6 +911,7 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                     const inRange = range ? isCellInRange(globalRow, colIdx, range) : false;
                     const isAnchor = hasMultiSelection && selection?.anchor.row === globalRow && selection?.anchor.col === colIdx;
                     const isActive = !hasMultiSelection && isActiveRow && activeCell?.col === colIdx;
+                    const issueMsg = validationIssues?.get(globalIndex);
                     return (
                       <td
                         {...{ [DATA_ATTR_ROW]: globalRow, [DATA_ATTR_COL]: colIdx }}
@@ -913,8 +919,10 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                           isAnchor ? anchorCellClass
                             : inRange && hasMultiSelection ? selectedCellClass
                             : isActive ? "border-blue-400"
+                            : issueMsg ? "border-amber-300 bg-amber-50"
                             : "border-gray-200"
                         }`}
+                        title={issueMsg ?? undefined}
                         onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, colIdx)}
                       >
                         <input
@@ -924,7 +932,7 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                           step="0.01"
                           value={entry.amount ?? ""}
                           onChange={e => onUpdate(globalIndex, "amount", e.target.value)}
-                          className={`${isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : isActive ? activeCellInputClass : cellInputClass} text-right tabular-nums`}
+                          className={`${isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : isActive ? activeCellInputClass : issueMsg ? cellInputAmberClass : cellInputClass} text-right tabular-nums`}
                         />
                       </td>
                     );

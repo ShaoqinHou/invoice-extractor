@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, CheckCircle } from "lucide-react";
+import { validateEntries } from "../lib/validateEntries";
 import { API_BASE } from "@web/lib/api";
 import { Button } from "../../../components/ui/Button";
 import {
@@ -143,6 +144,13 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
     () => buildGlobalCellValueGetter(rowMap, headerFields, groups, summaryEntries),
     [rowMap, headerFields, groups, summaryEntries],
   );
+
+  // Client-side arithmetic validation (reactive — auto-clears on edit)
+  const { entryIssues, headerIssues } = useMemo(
+    () => validateEntries(entries, totalAmount, gstAmount, currency),
+    [entries, totalAmount, gstAmount, currency],
+  );
+  const liveIssueCount = entryIssues.size + headerIssues.size;
 
   // Header field setters indexed by row
   const headerSetters: ((v: string) => void)[] = useMemo(() => [
@@ -319,8 +327,8 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
     <div className="flex h-full flex-col">
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {/* Exception banner */}
-        {exceptionInfo && (
+        {/* Exception banner — for value_mismatch, use live validation count */}
+        {exceptionInfo && invoice.exception_type !== 'value_mismatch' && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0" />
@@ -328,21 +336,28 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
               <StatusBadge status="exception" />
             </div>
             <p className="mt-1 text-xs text-amber-700">{exceptionInfo.description}</p>
-            {invoice.exception_details && (() => {
-              let items: string[] = [];
-              try { items = JSON.parse(invoice.exception_details); } catch { /* not JSON */ }
-              if (Array.isArray(items) && items.length > 0) {
-                return (
-                  <ul className="mt-1.5 space-y-0.5 text-xs text-amber-600 list-disc list-inside">
-                    {items.map((item, i) => <li key={i}>{item}</li>)}
-                  </ul>
-                );
-              }
-              if (invoice.exception_details !== exceptionInfo.description) {
-                return <p className="mt-1 text-xs text-amber-600">{invoice.exception_details}</p>;
-              }
-              return null;
-            })()}
+            {invoice.exception_details && invoice.exception_details !== exceptionInfo.description && (
+              <p className="mt-1 text-xs text-amber-600">{invoice.exception_details}</p>
+            )}
+          </div>
+        )}
+        {invoice.exception_type === 'value_mismatch' && liveIssueCount > 0 && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0" />
+              <span className="text-sm font-semibold text-amber-800">
+                {liveIssueCount} arithmetic {liveIssueCount === 1 ? 'issue' : 'issues'} highlighted below
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-amber-700">Hover over amber cells to see details. Editing values to fix the math will clear the highlight.</p>
+          </div>
+        )}
+        {invoice.exception_type === 'value_mismatch' && liveIssueCount === 0 && (
+          <div className="rounded-lg border border-green-300 bg-green-50 p-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+              <span className="text-sm font-semibold text-green-800">All arithmetic checks pass</span>
+            </div>
           </div>
         )}
 
@@ -372,6 +387,8 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
                 const labelIsAnchor = hasMultiSelection && selection?.anchor.row === i && selection?.anchor.col === 0;
                 const valueInRange = effectiveRange ? isCellInRange(i, 1, effectiveRange) : false;
                 const valueIsAnchor = hasMultiSelection && selection?.anchor.row === i && selection?.anchor.col === 1;
+                const headerIssueKey = i === 4 ? 'total' : i === 5 ? 'gst' : null;
+                const headerIssue = headerIssueKey ? headerIssues.get(headerIssueKey) : undefined;
                 return (
                   <tr key={field.label}>
                     <td
@@ -390,8 +407,10 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
                       className={`border p-0 ${
                         valueIsAnchor ? anchorCellClass
                           : valueInRange && hasMultiSelection ? selectedCellClass
+                          : headerIssue ? "border-amber-300 bg-amber-50"
                           : "border-gray-200"
                       }`}
+                      title={headerIssue ?? undefined}
                       onMouseDown={(e) => handleCellMouseDownEvent(e, i, 1)}
                     >
                       <input
@@ -402,6 +421,7 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
                         className={
                           valueIsAnchor ? headerAnchorInputClass
                             : valueInRange && hasMultiSelection ? headerSelectedInputClass
+                            : headerIssue ? "border border-amber-300 bg-amber-50 px-2 py-1.5 text-sm w-full outline-none focus:ring-1 focus:ring-amber-400"
                             : headerCellInputClass
                         }
                       />
@@ -418,6 +438,7 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
             onChange={setEntries}
             selectionProps={selectionProps}
             rowMap={rowMap}
+            validationIssues={entryIssues}
           />
         </div>
 
