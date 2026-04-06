@@ -87,6 +87,26 @@ describe('validateEntries', () => {
       expect(entryIssues.size).toBe(0);
     });
 
+    it('applies discount when extra label is Discount', () => {
+      // 19.99 × 1 × (1 - 15%) = 16.9915 ≈ 16.99
+      const entries = [makeEntry({
+        amount: 16.99,
+        attrs: { unit_price: 19.99, quantity: 1, extra1: '15.00%', extra1_label: 'Discount' },
+      })];
+      const { entryIssues } = validateEntries(entries, '16.99', '0', 'NZD');
+      expect(entryIssues.size).toBe(0);
+    });
+
+    it('applies 50% discount correctly', () => {
+      // 5.99 × 1 × (1 - 50%) = 2.995 ≈ 3.00, amount is 2.99 → within tolerance
+      const entries = [makeEntry({
+        amount: 2.99,
+        attrs: { unit_price: 5.99, quantity: 1, extra1: '50.00%', extra1_label: 'Discount' },
+      })];
+      const { entryIssues } = validateEntries(entries, '2.99', '0', 'NZD');
+      expect(entryIssues.size).toBe(0);
+    });
+
     it('sets expectedRate to null when qty is 0', () => {
       const entries = [makeEntry({
         amount: 25,

@@ -27,7 +27,8 @@ export function validateExtraction(ext: InvoiceExtraction): ValidationResult {
     const quantity = toNumber(attrs.unit_amount ?? attrs.quantity ?? attrs.qty);
 
     if (unitPrice != null && quantity != null) {
-      const expected = round2(unitPrice * quantity);
+      const discount = findDiscountPercent(attrs);
+      const expected = round2(unitPrice * quantity * (1 - discount / 100));
       const diff = Math.abs(expected - entry.amount);
       if (diff > 0.02) {
         issues.push(
@@ -82,4 +83,17 @@ function toNumber(v: unknown): number | null {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Find a discount percentage in extra attrs (e.g. extra1="23.00%", extra1_label="Discount") */
+function findDiscountPercent(attrs: Record<string, unknown>): number {
+  for (let i = 1; i <= 5; i++) {
+    const label = String(attrs[`extra${i}_label`] ?? '').toLowerCase();
+    if (label === 'discount') {
+      const val = String(attrs[`extra${i}`] ?? '');
+      const pct = parseFloat(val.replace('%', ''));
+      if (!isNaN(pct)) return pct;
+    }
+  }
+  return 0;
 }
