@@ -10,6 +10,8 @@ export interface EntryIssue {
   expectedAmount: number;
   /** amount ÷ qty — what the rate should be if amount is correct (null when qty is 0) */
   expectedRate: number | null;
+  /** amount ÷ rate — what the qty should be if amount is correct (null when rate is 0) */
+  expectedQty: number | null;
 }
 
 export interface ValidationResult {
@@ -62,6 +64,7 @@ export function validateEntries(
           involvedAttrs: new Set([priceKey, qtyKey]),
           expectedAmount: expected,
           expectedRate: qty !== 0 ? round2(entry.amount / qty) : null,
+          expectedQty: unitPrice !== 0 ? round2(entry.amount / unitPrice) : null,
         });
       }
     }

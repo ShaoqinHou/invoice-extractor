@@ -10,6 +10,7 @@ import type { SelectionState, NormalizedRange } from "@web/components/patterns/c
 
 /** Attr keys that represent a price/rate — used for cell-specific validation tooltips */
 const PRICE_ATTR_KEYS = new Set(['unit_price', 'unit_rate', 'rate']);
+const QTY_ATTR_KEYS = new Set(['unit_amount', 'quantity', 'qty']);
 
 export interface EntryRow {
   id?: number;
@@ -975,7 +976,9 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                     const attrTooltip = attrInvolved
                       ? PRICE_ATTR_KEYS.has(col.key) && entryIssue?.expectedRate != null
                         ? `Expected: $${entryIssue.expectedRate.toFixed(2)}`
-                        : entryIssue?.message
+                        : QTY_ATTR_KEYS.has(col.key) && entryIssue?.expectedQty != null
+                          ? `Expected: ${entryIssue.expectedQty}`
+                          : entryIssue?.message
                       : undefined;
                     return (
                       <td
