@@ -4,7 +4,7 @@ import { API_BASE } from "@web/lib/api";
 
 interface ReprocessPayload {
   id: number;
-  tier: 2 | 3;
+  tier?: 2 | 3;
 }
 
 export function useReprocess() {
@@ -15,7 +15,7 @@ export function useReprocess() {
       const res = await fetch(`${API_BASE}/invoices/${id}/reprocess`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tier }),
+        body: tier ? JSON.stringify({ tier }) : '{}',
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

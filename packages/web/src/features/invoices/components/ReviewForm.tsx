@@ -439,6 +439,7 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
             selectionProps={selectionProps}
             rowMap={rowMap}
             validationIssues={entryIssues}
+            headerIssues={headerIssues}
           />
         </div>
 

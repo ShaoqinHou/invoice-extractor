@@ -35,6 +35,8 @@ interface EditableEntriesTableProps {
   rowMap: SectionRowMap;
   /** Per-entry validation issues: globalIndex → issue details */
   validationIssues?: Map<number, EntryIssue>;
+  /** Header-level validation issues: 'total' | 'gst' → tooltip message */
+  headerIssues?: Map<string, string>;
 }
 
 const SUMMARY_TYPES = new Set(["subtotal", "total", "due", "tax", "discount", "adjustment"]);
@@ -390,7 +392,7 @@ export function parseTsv(text: string): string[][] {
   return text.split(/\r?\n/).filter(line => line.length > 0).map(line => line.split("\t"));
 }
 
-export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap, validationIssues }: EditableEntriesTableProps) {
+export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap, validationIssues, headerIssues }: EditableEntriesTableProps) {
   const [newGroupName, setNewGroupName] = useState("");
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [copyAllFeedback, setCopyAllFeedback] = useState(false);
@@ -565,6 +567,8 @@ export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap
                 <tbody>
                   {summaryEntries.map(({ entry, globalIndex }, si) => {
                     const globalRow = rowMap.summaryStart + si;
+                    const summaryIssueKey = entry.entry_type === 'total' ? 'total' : entry.entry_type === 'tax' ? 'gst' : null;
+                    const summaryIssue = summaryIssueKey ? headerIssues?.get(summaryIssueKey) : undefined;
                     return (
                       <tr key={globalIndex}>
                         {/* Label (col 0) */}
@@ -624,8 +628,10 @@ export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap
                               className={`border p-0 w-28 ${
                                 isAnchor ? anchorCellClass
                                   : inRange && hasMultiSelection ? selectedCellClass
+                                  : summaryIssue ? "border-amber-300 bg-amber-50"
                                   : "border-gray-200"
                               }`}
+                              title={summaryIssue ?? undefined}
                               onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, 2)}
                             >
                               <input
@@ -634,7 +640,7 @@ export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap
                                 value={entry.amount ?? ""}
                                 onChange={e => updateEntry(globalIndex, "amount", e.target.value)}
                                 placeholder="Amount"
-                                className={`${isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : cellInputClass} text-right font-medium tabular-nums`}
+                                className={`${isAnchor ? anchorCellInputClass : inRange && hasMultiSelection ? selectedCellInputClass : summaryIssue ? cellInputAmberClass : cellInputClass} text-right font-medium tabular-nums`}
                               />
                             </td>
                           );
