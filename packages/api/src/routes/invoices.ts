@@ -10,6 +10,7 @@ import { extractPdfText, extractWithTier } from '../lib/pdf/extract';
 import { generateDisplayName } from '../utils/displayName';
 import { getScheduler } from '../lib/pipeline/PipelineQueue';
 import { validateExtraction } from '../lib/pipeline/validate';
+import { normalizeAllEntryAttrs } from '../lib/pipeline/normalizeAttrs';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
@@ -755,6 +756,7 @@ export function invoiceRoutes(db: BetterSQLite3Database) {
           invoice_date: ext.invoice_date ?? null,
           supplier_name: ext.supplier_name ?? null,
           invoice_number: ext.invoice_number ?? null,
+          total_amount: ext.total_amount ?? null,
           entries: ext.entries ?? [],
           original_filename: invoice.original_filename,
         });
@@ -780,9 +782,12 @@ export function invoiceRoutes(db: BetterSQLite3Database) {
           .where(eq(invoices.id, invoiceId))
           .run();
 
-        if (ext.entries && ext.entries.length > 0) {
-          for (let i = 0; i < ext.entries.length; i++) {
-            const entry = ext.entries[i];
+        // Normalize attrs to standardized format (same as initial upload)
+        const normalizedEntries = ext.entries ? normalizeAllEntryAttrs(ext.entries) : [];
+
+        if (normalizedEntries.length > 0) {
+          for (let i = 0; i < normalizedEntries.length; i++) {
+            const entry = normalizedEntries[i];
             db.insert(invoiceEntries)
               .values({
                 invoice_id: invoiceId,
