@@ -948,7 +948,7 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                             : entryIssue ? "border-amber-300 bg-amber-50"
                             : "border-gray-200"
                         }`}
-                        title={entryIssue ? `Expected: $${entryIssue.expectedAmount.toFixed(2)}` : undefined}
+                        title={entryIssue ? `Expected: $${entryIssue.expectedAmount.toFixed(2)}\n(if rate × qty is correct)` : undefined}
                         onMouseDown={(e) => {
                           if (e.target === document.activeElement && e.target instanceof HTMLInputElement) return;
                           handleCellMouseDownEvent(e, globalRow, colIdx);
@@ -975,9 +975,9 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                     const attrInvolved = entryIssue?.involvedAttrs.has(col.key);
                     const attrTooltip = attrInvolved
                       ? PRICE_ATTR_KEYS.has(col.key) && entryIssue?.expectedRate != null
-                        ? `Expected: $${entryIssue.expectedRate.toFixed(2)}`
+                        ? `Expected: $${entryIssue.expectedRate.toFixed(2)}\n(if amount ÷ qty is correct)`
                         : QTY_ATTR_KEYS.has(col.key) && entryIssue?.expectedQty != null
-                          ? `Expected: ${entryIssue.expectedQty}`
+                          ? `Expected: ${entryIssue.expectedQty}\n(if amount ÷ rate is correct)`
                           : entryIssue?.message
                       : undefined;
                     return (
