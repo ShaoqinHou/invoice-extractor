@@ -398,7 +398,10 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
                           : labelInRange && hasMultiSelection ? selectedCellClass
                           : "border-gray-200"
                       }`}
-                      onMouseDown={(e) => handleCellMouseDownEvent(e, i, 0)}
+                      onMouseDown={(e) => {
+                        if (e.target === document.activeElement && e.target instanceof HTMLInputElement) return;
+                        handleCellMouseDownEvent(e, i, 0);
+                      }}
                     >
                       <span className="block px-2 py-1.5 text-xs font-medium text-gray-500 select-none">{field.label}</span>
                     </td>
@@ -411,7 +414,10 @@ export function ReviewForm({ invoice }: ReviewFormProps) {
                           : "border-gray-200"
                       }`}
                       title={headerIssue ?? undefined}
-                      onMouseDown={(e) => handleCellMouseDownEvent(e, i, 1)}
+                      onMouseDown={(e) => {
+                        if (e.target === document.activeElement && e.target instanceof HTMLInputElement) return;
+                        handleCellMouseDownEvent(e, i, 1);
+                      }}
                     >
                       <input
                         type={headerTypes[i]}

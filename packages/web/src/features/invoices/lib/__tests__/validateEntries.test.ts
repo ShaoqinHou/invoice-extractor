@@ -28,6 +28,8 @@ describe('validateEntries', () => {
       expect(issue.message).toContain('$30.00');
       expect(issue.message).toContain('$25.00');
       expect(issue.involvedAttrs).toEqual(new Set(['unit_price', 'unit_amount']));
+      expect(issue.expectedAmount).toBe(30);
+      expect(issue.expectedRate).toBeCloseTo(8.33, 1); // 25 / 3
     });
 
     it('allows ±$0.02 rounding tolerance', () => {
@@ -83,6 +85,18 @@ describe('validateEntries', () => {
       const entries = [makeEntry({ amount: 10 })];
       const { entryIssues } = validateEntries(entries, '10', '0', 'NZD');
       expect(entryIssues.size).toBe(0);
+    });
+
+    it('sets expectedRate to null when qty is 0', () => {
+      const entries = [makeEntry({
+        amount: 25,
+        attrs: { unit_price: 10, unit_amount: 0 },
+      })];
+      // rate × 0 = 0, diff from 25 > 0.02, so issue flagged
+      const { entryIssues } = validateEntries(entries, '25', '0', 'NZD');
+      expect(entryIssues.size).toBe(1);
+      expect(entryIssues.get(0)!.expectedAmount).toBe(0);
+      expect(entryIssues.get(0)!.expectedRate).toBeNull();
     });
   });
 

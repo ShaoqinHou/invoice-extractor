@@ -6,6 +6,10 @@ export interface EntryIssue {
   message: string;
   /** Attr keys involved in the mismatch (e.g. unit_price, unit_amount) — highlight these cells too */
   involvedAttrs: Set<string>;
+  /** rate × qty — what the amount should be if rate is correct */
+  expectedAmount: number;
+  /** amount ÷ qty — what the rate should be if amount is correct (null when qty is 0) */
+  expectedRate: number | null;
 }
 
 export interface ValidationResult {
@@ -55,6 +59,8 @@ export function validateEntries(
         entryIssues.set(i, {
           message: `${qty} × $${unitPrice.toFixed(2)} = $${expected.toFixed(2)} but amount is $${entry.amount.toFixed(2)} (diff: $${diff.toFixed(2)})`,
           involvedAttrs: new Set([priceKey, qtyKey]),
+          expectedAmount: expected,
+          expectedRate: qty !== 0 ? round2(entry.amount / qty) : null,
         });
       }
     }

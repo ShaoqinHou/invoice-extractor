@@ -8,6 +8,9 @@ import {
 } from "@web/components/patterns/cell-selection";
 import type { SelectionState, NormalizedRange } from "@web/components/patterns/cell-selection";
 
+/** Attr keys that represent a price/rate — used for cell-specific validation tooltips */
+const PRICE_ATTR_KEYS = new Set(['unit_price', 'unit_rate', 'rate']);
+
 export interface EntryRow {
   id?: number;
   label: string;
@@ -583,7 +586,10 @@ export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap
                                   : inRange && hasMultiSelection ? selectedCellClass
                                   : "border-gray-200"
                               }`}
-                              onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, 0)}
+                              onMouseDown={(e) => {
+                                if (e.target === document.activeElement && e.target instanceof HTMLInputElement) return;
+                                handleCellMouseDownEvent(e, globalRow, 0);
+                              }}
                             >
                               <input
                                 value={entry.label}
@@ -606,7 +612,10 @@ export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap
                                   : inRange && hasMultiSelection ? selectedCellClass
                                   : "border-gray-200"
                               }`}
-                              onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, 1)}
+                              onMouseDown={(e) => {
+                                if (e.target === document.activeElement && (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement)) return;
+                                handleCellMouseDownEvent(e, globalRow, 1);
+                              }}
                             >
                               <select
                                 value={entry.entry_type ?? "subtotal"}
@@ -632,7 +641,10 @@ export function EditableEntriesTable({ entries, onChange, selectionProps, rowMap
                                   : "border-gray-200"
                               }`}
                               title={summaryIssue ?? undefined}
-                              onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, 2)}
+                              onMouseDown={(e) => {
+                                if (e.target === document.activeElement && e.target instanceof HTMLInputElement) return;
+                                handleCellMouseDownEvent(e, globalRow, 2);
+                              }}
                             >
                               <input
                                 type="number"
@@ -868,7 +880,10 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                         : inRange ? selectedHeaderClass
                         : "border-gray-200"
                     }`}
-                    onMouseDown={(e) => handleCellMouseDownEvent(e, globalHeaderRow, colIdx)}
+                    onMouseDown={(e) => {
+                      if (e.target === document.activeElement && e.target instanceof HTMLInputElement) return;
+                      handleCellMouseDownEvent(e, globalHeaderRow, colIdx);
+                    }}
                   >
                     {label}
                   </th>
@@ -900,7 +915,10 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                             : isActive ? "border-blue-400"
                             : "border-gray-200"
                         }`}
-                        onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, colIdx)}
+                        onMouseDown={(e) => {
+                          if (e.target === document.activeElement && e.target instanceof HTMLInputElement) return;
+                          handleCellMouseDownEvent(e, globalRow, colIdx);
+                        }}
                       >
                         <input
                           data-row={localRow}
@@ -929,8 +947,11 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                             : entryIssue ? "border-amber-300 bg-amber-50"
                             : "border-gray-200"
                         }`}
-                        title={entryIssue?.message ?? undefined}
-                        onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, colIdx)}
+                        title={entryIssue ? `Expected: $${entryIssue.expectedAmount.toFixed(2)}` : undefined}
+                        onMouseDown={(e) => {
+                          if (e.target === document.activeElement && e.target instanceof HTMLInputElement) return;
+                          handleCellMouseDownEvent(e, globalRow, colIdx);
+                        }}
                       >
                         <input
                           data-row={localRow}
@@ -951,6 +972,11 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                     const isAnchor = hasMultiSelection && selection?.anchor.row === globalRow && selection?.anchor.col === colIdx;
                     const isActive = !hasMultiSelection && isActiveRow && activeCell?.col === colIdx;
                     const attrInvolved = entryIssue?.involvedAttrs.has(col.key);
+                    const attrTooltip = attrInvolved
+                      ? PRICE_ATTR_KEYS.has(col.key) && entryIssue?.expectedRate != null
+                        ? `Expected: $${entryIssue.expectedRate.toFixed(2)}`
+                        : entryIssue?.message
+                      : undefined;
                     return (
                       <td
                         key={col.key}
@@ -962,8 +988,11 @@ function GroupSection({ group, allEntries, onUpdate, onUpdateAttr, onRemove, onA
                             : attrInvolved ? "border-amber-300 bg-amber-50"
                             : "border-gray-200"
                         }`}
-                        title={attrInvolved ? entryIssue?.message : undefined}
-                        onMouseDown={(e) => handleCellMouseDownEvent(e, globalRow, colIdx)}
+                        title={attrTooltip}
+                        onMouseDown={(e) => {
+                          if (e.target === document.activeElement && e.target instanceof HTMLInputElement) return;
+                          handleCellMouseDownEvent(e, globalRow, colIdx);
+                        }}
                       >
                         <input
                           data-row={localRow}
